@@ -25,14 +25,29 @@ register_test_() ->
       end},
      {"Hey manner",
       fun () ->
-            {ok, MS} = mailfilter:start(infinite),
-              ?assertMatch({ok, _}, mailfilter:add_mail(MS, some_mail))
+              {ok, MS} = mailfilter:start(infinite),
+              ?assertMatch({ok, _},
+                           (mailfilter:add_mail(MS, some_mail)))
       end},
-     {"Hey manner",
+     {"Hey",
       fun () ->
-            {ok, MS} = mailfilter:start(infinite),
-            {ok, MR} = mailfilter:add_mail(MS, some_mail),
-              ?assert(is_reference(MR))
+              {ok, MS} = mailfilter:start(infinite),
+              mailfilter:default(MS,
+                                 importance,
+                                 {simple, fun importance/2},
+                                 #{}),
+              {ok, MR} = mailfilter:add_mail(MS, <<"Some mail">>),
+              timer:sleep(1000),
+              ?assertMatch(ok, mailfilter:get_config(MR))
       end}].
+
+importance(M, C) ->
+    Important = binary:compile_pattern([<<"AP">>,
+                                        <<"Haskell">>,
+                                        <<"Erlang">>]),
+    case binary:match(M, Important, []) of
+        nomatch -> {just, C#{spam => true}};
+        _ -> {just, C#{importance => 10000}}
+    end.
 
 test_everything() -> test_all().

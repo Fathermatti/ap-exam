@@ -32,25 +32,17 @@ start() ->
 
 init(_Args) -> {ok, #state{}}.
 
-handle_call({add, Mail}, _From, S = #state{mails = Mails, filts = Filts}) -> 
-  Ref = make_ref(),
-  {reply, {ok, Ref}, S#state{mails = maps:put(Ref, {Mail, Filts}, Mails)}};
-handle_call({config, Ref}, _From, S = #state{mails = Mails}) -> 
-  {Mail, Filts} = maps:get(Ref, Mails),
-  M = maps:map(fun(F) -> apply(F, Mail) end, Filts), 
-  {reply, {ok, maps:to_list(M)}, S}.
+handle_call({add, Mail}, _From, S = #state{filts = Filts}) -> 
+  {ok, MR} = analyzer:new(Mail, Filts),
+  {reply, {ok, MR}, S}.
 
 handle_cast({def, Label, Filt, Data},
             S = #state{filts = Filts}) ->
-    NewFilts = case maps:is_key(Label, Filts) of
-                   true -> maps:put(Label, Filt, Filts);
-                   false -> Filts
+    F = case maps:is_key(Label, Filts) of
+                   true -> Filts;
+                   false -> maps:put(Label, {Filt, Data}, Filts)
                end,
-    {noreply, S#state{filts = NewFilts}}.
-
-apply({simple, Fun}, Mail, Data) -> 
-  Fun(Mail, Data).  
-
+    {noreply, S#state{filts = F}}.
 
 
 % API :
@@ -63,7 +55,7 @@ add_mail(MS, Mail) ->
     gen_server:call(MS, {add, Mail}).
 
 get_config(MR) ->
-    gen_server:call(MS, {config, MR}).
+    gen_statem:call(MR, config).
 
 default(MS, Label, Filt, Data) ->
     gen_server:cast(MS, {def, Label, Filt, Data}).
