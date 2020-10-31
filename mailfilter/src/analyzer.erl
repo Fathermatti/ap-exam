@@ -8,6 +8,8 @@
 % Callback API
 -export([analyzing/3, callback_mode/0, done/3, init/1]).
 
+-export([eval/3]).
+
 -record(mail, {mail, inprogress, done}).
 
 new(Mail, Filts) ->
@@ -32,8 +34,8 @@ analyzing(cast, start, S) ->
     {keep_state, S, [{next_event, internal, execute}]};
 analyzing(internal, execute, S) ->
     New = evaluate(S),
-    case New#mail.inprogress of
-        #{} -> {next_state, done, S};
+    case maps:size(New#mail.inprogress) of
+        0 -> {next_state, done, New};
         _ ->
             {keep_state, New, [{next_event, internal, execute}]}
     end.
@@ -65,11 +67,59 @@ evaluate(S = #mail{mail = Mail, inprogress = IP,
     end.
 
 eval(Filt, Mail, Data) ->
-    case Filt of 
+    case Filt of
         {simple, Fun} -> Fun(Mail, Data);
-    _ -> throw(shiiieeeeet)
+        {chain, []} -> unchanged;
+        {chain, Filts} ->
+            P = fun (F, {M, D, _}) ->
+                        R = eval(F, M, D),
+                        {M2, D2} = decide(M, D, R),
+                        {M2, D2, R}
+                end,
+            {_, _, Res} = lists:foldl(P, {Mail, Data, {}}, Filts),
+            Res;
+        {group, [], _Merge} -> unchanged; % ASSUMPTION
+        {group, Filts, Merge} ->
+            Me = self(),
+            N = lists:seq(1, length(Filts)),
+            F = lists:zip(N, Filts),
+            lists:map(fun ({I, X}) ->
+                              spawn(fun () -> Me ! {I, eval(X, Mail, Data)} end)
+                      end,
+                      F),
+            g({[inprogress || _ <- N], Merge});
+        {timelimit, Time, Me} ->
+            Me = self(),
+            exit(self(), normal
+
     end.
 
+g({State, Merge}) ->
+    receive
+        {I, Result} ->
+            S = insert(I, Result, State),
+            case Merge(S) of
+                continue -> g({S, Merge});
+                R -> R
+            end
+    end.
+
+t(T) ->
+  Self = self(),
+  Pid = spawn(fun()-> 
+                  timer:sleep(2000),
+                  io:format("hello world ~p!~n",[Name]),
+                  Self ! {self(), ok} end),
+  receive
+    Result -> Result
+  after
+     T -> exit(Pid, normal),
+     unchanged
+  end.
+
+insert(I, E, L) ->
+    {L1, [_ | L2]} = lists:split(I - 1, L),
+    L1 ++ [E] ++ L2.
 
 decide(Mail, Data, Res) ->
     case Res of
@@ -78,79 +128,3 @@ decide(Mail, Data, Res) ->
         {just, D} -> {Mail, D};
         {both, M, D} -> {M, D}
     end.
-
-% second({call, From}, stop,
-
-%        {{Other, _OtherChoice}, _Game}) ->
-%     Replies = [{reply, From, stopped},
-%                {reply, Other, server_stopping}],
-%     {next_state, stopping, [Other], Replies};
-% second({call, From}, Choice,
-%        {{OtherFrom, OtherChoice}, Game}) ->
-%     {Result, OtherResult} = play(From,
-%                                  Choice,
-%                                  OtherFrom,
-%                                  OtherChoice),
-%     NewGame = standing(Result, OtherResult, Game),
-%     case is_game_over(NewGame) of
-%         false ->
-%             Replies = reply_results(Result, OtherResult),
-%             {next_state, first, NewGame, Replies};
-%         true ->
-%             gen_event:notify(NewGame#game.broker,
-%                              {done, self(), NewGame#game.rounds}),
-%             Replies = reply_game_over(From, OtherFrom, NewGame),
-%             {stop_and_reply, done, Replies}
-%     end.
-
-% stopping({call, From}, _Choice, []) ->
-%     {keep_state, [From], [{reply, From, server_stopping}]};
-% stopping({call, From}, _Choice, [_Other]) ->
-%     {stop_and_reply,
-%      stopped,
-%      [{reply, From, server_stopping}]}.
-
-% reply_results({From, Result}, {OtherFrom, OtherResult}) ->
-%     [{reply, From, Result}, {reply, OtherFrom, OtherResult}].
-
-% reply_game_over(From = {Player, _}, OtherFrom = {Other, _}, Game) ->
-%     P = maps:get(Player, Game#game.standing),
-%     O = maps:get(Other, Game#game.standing),
-%     [{reply, From, {game_over, P, O}},
-%      {reply, OtherFrom, {game_over, O, P}}].
-
-% is_game_over(Game) ->
-%     Max = lists:max(maps:values(Game#game.standing)),
-%     Limit = Game#game.rounds / 2,
-%     Max > Limit.
-
-% standing({{Player, _Tag}, Result}, {{Other, _OtherTag}, _OtherResult}, Game) ->
-%     case Result of
-%         round_won -> won(Player, Game);
-%         round_lost -> won(Other, Game);
-%         tie -> Game
-%     end.
-
-% won(Player, Game) ->
-%     S = maps:update_with(Player,
-%                          fun (X) -> X + 1 end,
-%                          Game#game.standing),
-%     Game#game{standing = S}.
-
-% play(From, Choice, Other, OtherChoice) ->
-%     {Outcome, OtherOutcome} = decide(Choice, OtherChoice),
-%     {{From, Outcome}, {Other, OtherOutcome}}.
-
-% decide(Choice, OtherChoice) ->
-%     M = #{rock => 1, scissor => 2, paper => 3},
-%     This = maps:get(Choice, M, nothing),
-%     That = maps:get(OtherChoice, M, nothing),
-%     case {This, That} of
-%         {X, X} -> {tie, tie};
-%         {nothing, _} -> {round_lost, round_won};
-%         {_, nothing} -> {round_won, round_lost};
-%         {X, Y} when (X + 1) rem 3 == Y ->
-%             {round_won, round_lost};
-%         _ -> {round_lost, round_won}
-%     end.
-

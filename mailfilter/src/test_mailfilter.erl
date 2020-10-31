@@ -27,7 +27,7 @@ register_test_() ->
       fun () ->
               {ok, MS} = mailfilter:start(infinite),
               ?assertMatch({ok, _},
-                           (mailfilter:add_mail(MS, some_mail)))
+                           mailfilter:add_mail(MS, some_mail))
       end},
      {"Hey",
       fun () ->
@@ -38,7 +38,7 @@ register_test_() ->
                                  #{}),
               {ok, MR} = mailfilter:add_mail(MS, <<"Some mail">>),
               timer:sleep(1000),
-              ?assertMatch(ok, mailfilter:get_config(MR))
+              ?assertMatch([{importance,{done,#{spam := true}}}], mailfilter:get_config(MR))
       end}].
 
 importance(M, C) ->
