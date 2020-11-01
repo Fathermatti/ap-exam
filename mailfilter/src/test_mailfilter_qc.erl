@@ -80,15 +80,21 @@ mail() -> eqc_gen:utf8().
 
 initial_state() -> #{ms => none, mails => []}.
 
+start(Cap) ->
+        {ok, MS } = mailfilter:start(Cap),
+        MS.
+
+
 command(#{ms := none}) ->
-    return({call, mailfilter, start, [infinite]});
+    return({call, ?MODULE, start, [infinite]});
 command(#{ms := MS}) ->
     oneof([{call, mailfilter, add_mail, [MS, mail()]}]).
 
+next_state(S, V, {call, ?MODULE, start, [_Cap]}) ->
+    S#{ms := V};
 next_state(#{mails := Mails} = S, _V,
            {call, mailfilter, add_mail, [_MS, Mail]}) ->
-    S#{mails := [Mail | Mails]};
-next_state(S, _V, _) -> S.
+    S#{mails := [Mail | Mails]}.
 
 precondition(_S, {call, _, _, _}) -> true.
 
@@ -99,20 +105,20 @@ prop_registration() ->
             begin
                 {H, S, R} = Result = run_commands(?MODULE, Cmds),
                 #{ms := MS, mails := Mails} = S,
-                Labelled = case MS of 
-                        none -> [];
-                        MS -> mailfilter:stop(MS)
-                end,
-                check_commands(Cmds, Result),
-                same_mails(Mails, Labelled)
+                Labelled = case MS of
+                               none -> [];
+                               MS ->
+                                   {ok, L} = mailfilter:stop(MS),
+                                   L
+                           end,
+                pretty_commands(?MODULE,
+                                Cmds,
+                                Result,
+                                aggregate(command_names(Cmds),
+                                          R =:= ok andalso
+                                              same_mails(Mails, Labelled)))
             end).
 
 same_mails(List, Labelled) ->
     lists:sort(List) =:=
         lists:sort([Mail || {Mail, _} <- Labelled]).
-
-check_commands(Cmds, {_,_,Res} = HSRes) ->
-    pretty_commands(?MODULE, Cmds, HSRes,
-                    aggregate(command_names(Cmds),
-                              equals(Res, ok))).
-
