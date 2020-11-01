@@ -22,14 +22,14 @@ stop(MS) ->
         exit:Error -> {error, Error}
     end.
 
+default(MS, Label, Filt, Data) ->
+    mailserver:add_filter(MS, Label, Filt, Data).
+
 add_mail(MS, Mail) -> mailserver:add_mail(MS, Mail).
 
 get_config(MR) -> mailanalyzer:get_config(MR).
 
-default(MS, Label, Filt, Data) ->
-    mailserver:add_filter(MS, Label, Filt, Data).
-
-enough(MR) -> mailanalyzer:stop(MR).
+enough(MR) -> mailanalyzer:close(MR).
 
 add_filter(MR, Label, Filt, Data) ->
     mailanalyzer:add_filter(MR, Label, Filt, Data).

@@ -22,5 +22,5 @@ chain_test_() ->
       fun () ->
           {ok, MS} = mailserver:start(infinite),
               R = mailanalyzer:evaluate(MS, {chain, [{simple, fun (_, _) -> {just, x} end}]}, mail, data),
-              ?assertMatch({just,hey}, R)
+              ?assertMatch({just,x}, R)
       end}].

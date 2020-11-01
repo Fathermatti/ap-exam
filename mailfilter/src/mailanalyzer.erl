@@ -4,16 +4,17 @@
 
 % Public API
 -export([add_filter/4,
-         finish/1,
+         close/1,
+         complete/1,
+         evaluate/4,
          get_config/1,
-         new/3,
-         stop/1,
-         evaluate/4]).
+         new/3]).
 
 % Callback API
--export([analyzing/3, callback_mode/0, init/1]).
-
--record(context, {mail, filter, ms, mr}).
+-export([active/3,
+         callback_mode/0,
+         inactive/3,
+         init/1]).
 
 -record(state, {ref, ms, mail, running, done}).
 
@@ -25,9 +26,9 @@ add_filter(MR, Label, Filt, Data) ->
 
 get_config(MR) -> gen_statem:call(MR, config).
 
-finish(MR) -> gen_statem:call(MR, finish).
+close(MR) -> gen_statem:cast(MR, close).
 
-stop(MR) -> gen_statem:cast(MR, stop).
+complete(MR) -> gen_statem:call(MR, complete).
 
 callback_mode() -> state_functions.
 
@@ -35,17 +36,23 @@ init({MS, Mail, Filters}) ->
     Ref = make_ref(),
     run(MS, self(), Ref, Mail, Filters),
     {ok,
-     analyzing,
+     active,
      #state{ref = Ref, ms = MS, mail = Mail,
             running = Filters, done = #{}}}.
 
-analyzing(cast, {done, Ref, Label, {just, Data}},
-          #state{ref = Ref} = S) ->
+active(cast, {done, Ref, Label, {just, Data}},
+       #state{ref = Ref} = S) ->
     {keep_state, commit(S, Label, Data)};
-analyzing(cast, {done, Ref, Label, unchanged},
-          S = #state{ref = Ref}) ->
+active(cast, {done, Ref, Label, unchanged},
+       S = #state{ref = Ref}) ->
     {keep_state, unchanged(S, Label)};
-% analyzing(cast, {add, Label, Filt, Data},
+active({call, From}, config, S) ->
+    {keep_state_and_data, [{reply, From, result(S)}]};
+active({call, From}, complete, S) ->
+    {next_state, inactive, S, [{reply, From, result(S)}]};
+active(cast, close, S) -> {next_state, inactive, S}.
+
+% active(cast, {add, Label, Filt, Data},
 %           #state{ms = MS, running = Running, done = Done} = S) ->
 %     case lists:any(fun (X) -> X =:= Label end, Running) of
 %         true -> {keep_state, S};
@@ -55,20 +62,27 @@ analyzing(cast, {done, Ref, Label, unchanged},
 %             {keep_state,
 %              S#state{running = [{Label, Filt, Data} | Running]}}
 %     end;
-analyzing({call, From}, config, S) ->
+
+inactive(cast, {add, _, _, _}, _S) ->
+    {keep_state_and_data};
+inactive(cast, close, _S) -> {keep_state_and_data};
+inactive({call, From}, complete, S) ->
+    {keep_state_and_data, [{reply, From, result(S)}]};
+inactive({call, From}, config, S) ->
     {keep_state_and_data, [{reply, From, result(S)}]}.
 
 result(#state{mail = Mail, running = Running,
               done = Done}) ->
-    L = maps:values(maps:map(fun (Label, {_, _}) ->
-                                     {Label, inprogress}
-                             end,
-                             Running)),
-    R = maps:values(maps:map(fun (Label, {_, Data}) ->
-                                     {Label, {done, Data}}
-                             end,
-                             Done)),
-    {Mail, L ++ R}.
+    {Mail,
+     maps:values(maps:map(fun (Label, {_, _}) ->
+                                  {Label, inprogress}
+                          end,
+                          Running))
+         ++
+         maps:values(maps:map(fun (Label, {_, Data}) ->
+                                      {Label, {done, Data}}
+                              end,
+                              Done))}.
 
 run(MS, MR, Ref, Mail, Filters) ->
     maps:map(fun (Label, {Filter, Data}) ->
@@ -141,7 +155,7 @@ evaluate(MS, {chain, Filts}, Mail, Data) ->
     {M, D} = lists:foldl(P, {Mail, Data}, L),
     mailserver:execute(MS,
                        evaluation_executer(MS, Last, M, D)),
-                       receive R -> R end.
+    receive R -> R end.
 
 % evaluate(Filter, Mail, Data) ->
 %     case Filter of

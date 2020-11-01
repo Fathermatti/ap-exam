@@ -38,12 +38,27 @@ stop_test_() ->
     [{"Stop running server",
       fun () ->
               {ok, MS} = mailfilter:start(infinite),
-              ?assertMatch({ok, []}, (mailfilter:stop(MS)))
+              {ok, _} = mailfilter:add_mail(MS, <<"x">>),
+              ?assertMatch({ok, [{<<"x">>, []}]},
+                           (mailfilter:stop(MS)))
       end},
      {"Stop nonrunning server",
       fun () ->
               ?assertMatch({error, _}, (mailfilter:stop(pid)))
       end}].
+
+default_test_() ->
+    [{"Add mail to empty mail server",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               [?_assertMatch(ok,
+                              (mailfilter:default(MS,
+                                                  x,
+                                                  {simple,
+                                                   fun (_, _) -> unchanged end},
+                                                  0)))]
+       end}}].
 
 add_mail_test_() ->
     [{"Add mail to empty mail server",
@@ -66,9 +81,23 @@ get_config_test_() ->
       {setup,
        fun start/0,
        fun (MS) ->
-               mailfilter:default(MS, x, {simple, fun(_, _) -> {just, truth} end}, 0),
-               {ok, MR} = mailfilter:add_mail(MS, <<"abc">>),
-               [?_assertMatch({<<"abc">>,[{x,{done,truth}}]}, (mailfilter:get_config(MR)))]
+               mailfilter:default(MS,
+                                  y,
+                                  {simple, fun (_, _) -> {just, truth} end},
+                                  0),
+               {ok, MR} = mailfilter:add_mail(MS, <<"x">>),
+               [?_assertMatch({<<"x">>, [{y, _}]},
+                              (mailfilter:get_config(MR)))]
+       end}}].
+
+enough_test_() ->
+    [{"Add mail to empty mail server",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               {ok, MR} = mailfilter:add_mail(MS, <<"x">>),
+               [?_assertMatch(ok,
+                              (mailfilter:enough(MR)))]
        end}}].
 
 start() ->

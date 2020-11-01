@@ -1,7 +1,11 @@
 -module(mailserver).
 
 % Public API
--export([execute/2, add_filter/4, add_mail/2, start/1, stop/1]).
+-export([add_filter/4,
+         add_mail/2,
+         execute/2,
+         start/1,
+         stop/1]).
 
 % Callback functions
 -export([handle_call/3,
@@ -26,7 +30,8 @@ new(Cap) -> gen_server:start(?MODULE, Cap, []).
 
 stop(MS) -> gen_server:call(MS, stop).
 
-add_mail(MS, Mail) -> gen_server:call(MS, {add_mail, Mail}).
+add_mail(MS, Mail) ->
+    gen_server:call(MS, {add_mail, Mail}).
 
 add_filter(MS, Label, Filt, Data) ->
     gen_server:cast(MS, {add_filter, Label, Filt, Data}).
@@ -37,16 +42,17 @@ init(Cap) -> {ok, #state{cap = Cap}}.
 
 handle_call({add_mail, Mail}, _From,
             #state{mails = Mails, defaults = Defs} = S) ->
-    case mailanalyzer:new(self(), Mail, Defs) of 
-        {ok, MR} ->   {reply, {ok, MR}, S#state{mails = [MR | Mails]}};
-        Otherwise ->  {reply, Otherwise, S}
+    case mailanalyzer:new(self(), Mail, Defs) of
+        {ok, MR} ->
+            {reply, {ok, MR}, S#state{mails = [MR | Mails]}};
+        Otherwise -> {reply, Otherwise, S}
     end;
 handle_call(stop, _From, S = #state{mails = Mails}) ->
-    Res = lists:map(fun ({M, MR}) ->
-                            {M, mailanalyzer:finish(MR)}
-                    end,
-                    Mails),
-    {stop, normal, Res, S}.
+    {stop,
+     normal,
+     lists:map(fun (MR) -> mailanalyzer:complete(MR) end,
+               Mails),
+     S}.
 
 handle_cast({add_filter, Label, Filt, Data},
             #state{defaults = Defs} = S) ->
@@ -59,14 +65,14 @@ handle_cast({execute, Fun},
             #state{cap = Cap, active = Active, queue = Queue} =
                 S) ->
     if Active < Cap ->
-              io:fwrite("Hello world!~s~n", [Cap]),
+           io:fwrite("Hello world!~s~n", [Cap]),
            execute(Fun),
            {noreply, S#state{active = Active + 1}};
        Active =:= Cap ->
            {noreply, S#state{queue = Queue ++ [Fun]}}
     end;
 handle_cast({remove_mail, MR}, S = #state{mails = M}) ->
-    {noreply, S#state{mails = sets:del_element(MR, M)}}.
+    {noreply, S#state{mails = lists:delete(MR, M)}}.
 
 handle_info({'DOWN', _, _, _, _},
             #state{active = Active, queue = Queue} = S) ->
@@ -79,4 +85,8 @@ handle_info({'DOWN', _, _, _, _},
 handle_info(X, _S) ->
     io:fwrite("Hello world!~s~n", [X]).
 
-execute(Func) -> spawn_monitor(fun () -> Func(), io:fwrite("GG!~n", []) end).
+execute(Func) ->
+    spawn_monitor(fun () ->
+                          Func(),
+                          io:fwrite("GG!~n", [])
+                  end).
