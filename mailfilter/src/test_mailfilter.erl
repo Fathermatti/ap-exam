@@ -1,7 +1,5 @@
 -module(test_mailfilter).
 
--export([test_all/0, test_everything/0]).
-
 -export([]). % Remember to export the other function from Q2.2
 
 % You are allowed to split your test code in as many files as you
@@ -10,44 +8,69 @@
 % But you MUST have a module (this file) called test_mailfilter.
 -include_lib("eunit/include/eunit.hrl").
 
-test_all() -> eunit:test(register_test_(), [verbose]).
+%test_all() -> eunit:test(register_test_(), [verbose]).
 
-start() -> ok.
-
-stop(_) -> ok.
-
--define(setup(F), {setup, fun start/0, fun stop/1, F}).
-
-register_test_() ->
-    [{"Hey manner",
+start_test_() ->
+    [{"Start inifinite capacity",
       fun () ->
               ?assertMatch({ok, _}, (mailfilter:start(infinite)))
       end},
-     {"Hey manner",
-      fun () ->
-              {ok, MS} = mailfilter:start(infinite),
-              ?assertMatch({ok, _},
-                           mailfilter:add_mail(MS, some_mail))
+     {"Start valid capacity",
+      fun () -> ?assertMatch({ok, _}, (mailfilter:start(100)))
       end},
-     {"Hey",
+     {"Start zero capacity",
       fun () ->
-              {ok, MS} = mailfilter:start(infinite),
-              mailfilter:default(MS,
-                                 importance,
-                                 {simple, fun importance/2},
-                                 #{}),
-              {ok, MR} = mailfilter:add_mail(MS, <<"Some mail">>),
-              timer:sleep(1000),
-              ?assertMatch([{importance,{done,#{spam := true}}}], mailfilter:get_config(MR))
+              ?assertMatch({error, invalid_capacity},
+                           (mailfilter:start(0)))
+      end},
+     {"Start invalid capacity",
+      fun () ->
+              ?assertMatch({error, invalid_capacity},
+                           (mailfilter:start(-100)))
+      end},
+     {"Start noninteger capacity",
+      fun () ->
+              ?assertMatch({error, invalid_capacity},
+                           (mailfilter:start(#{x => 2})))
       end}].
 
-importance(M, C) ->
-    Important = binary:compile_pattern([<<"AP">>,
-                                        <<"Haskell">>,
-                                        <<"Erlang">>]),
-    case binary:match(M, Important, []) of
-        nomatch -> {just, C#{spam => true}};
-        _ -> {just, C#{importance => 10000}}
-    end.
+stop_test_() ->
+    [{"Stop running server",
+      fun () ->
+              {ok, MS} = mailfilter:start(infinite),
+              ?assertMatch({ok, []}, (mailfilter:stop(MS)))
+      end},
+     {"Stop nonrunning server",
+      fun () ->
+              ?assertMatch({error, _}, (mailfilter:stop(pid)))
+      end}].
 
-test_everything() -> test_all().
+add_mail_test_() ->
+    [{"Add mail to empty mail server",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               [?_assertMatch({ok, _},
+                              (mailfilter:add_mail(MS, <<"abc">>)))]
+       end}},
+     {"Add mail to empty mail server",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               [?_assertMatch({ok, _},
+                              (mailfilter:add_mail(MS, <<"abc">>)))]
+       end}}].
+
+get_config_test_() ->
+    [{"Add mail to empty mail server",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               mailfilter:default(MS, x, {simple, fun(_, _) -> {just, truth} end}, 0),
+               {ok, MR} = mailfilter:add_mail(MS, <<"abc">>),
+               [?_assertMatch({<<"abc">>,[{x,{done,truth}}]}, (mailfilter:get_config(MR)))]
+       end}}].
+
+start() ->
+    {ok, Pid} = mailfilter:start(infinite),
+    Pid.
