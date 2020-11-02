@@ -50,9 +50,10 @@ stop_state_test_() ->
                mailfilter:default(MS, x, simple(), none),
                {ok, _} = mailfilter:add_mail(MS, "x"),
                {ok, State} = mailfilter:stop(MS),
-               ?_assertMatch( [{"x",[{x, _}]}], State)
+               ?_assertMatch([{"x", [{x, _}]}], State)
        end}},
-       {"State with single mail, default and added filters",
+     {"State with single mail, default and "
+      "added filters",
       {setup,
        fun start/0,
        fun (MS) ->
@@ -64,10 +65,9 @@ stop_state_test_() ->
                Labels = [L || {L, _} <- Config],
                [?_assert((lists:member(x, Labels))),
                 ?_assert((lists:member(y, Labels))),
-               ?_assertMatch([{"x", _Config}], State),
-               ?_assertMatch([{"x", _Config}], State)]
+                ?_assertMatch([{"x", _Config}], State),
+                ?_assertMatch([{"x", _Config}], State)]
        end}}].
-
 
 default_test_() ->
     [{"Add default filter",
@@ -156,41 +156,102 @@ add_filter_test_() ->
        fun start/0,
        fun (MS) ->
                {ok, MR} = mailfilter:add_mail(MS, "x"),
-                mailfilter:add_filter(MR, x, simple(), none),
-                {ok, Config} = mailfilter:get_config(MR),
+               mailfilter:add_filter(MR, x, simple(), none),
+               {ok, Config} = mailfilter:get_config(MR),
                ?_assertMatch([{x, _Result}], Config)
        end}}].
 
-filter_type_test_() ->
-    [{"Add mail to empty mail server",
+simple_filter_test_() ->
+    [{"Add simple filter",
       {setup,
-       fun start/0,
-       fun (MS) ->
-               {ok, MR} = mailfilter:add_mail(MS, "x"),
-                mailfilter:add_filter(MR, x, chain_empty(), none),
-                {ok, Config} = mailfilter:get_config(MR),
-               ?_assertMatch([{x, _Result}], Config)
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, simple(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}}].
+
+chain_filter_test_() ->
+    [{"Add empty chain filter",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, chain_empty(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
        end}},
-       {"Add mail to empty mail server",
+     {"Add chain filter",
       {setup,
-       fun start/0,
-       fun (MS) ->
-               {ok, MR} = mailfilter:add_mail(MS, "x"),
-                mailfilter:add_filter(MR, x, chain(), none),
-                {ok, Config} = mailfilter:get_config(MR),
-               ?_assertMatch([{x, _Result}], Config)
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, chain(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}}].
+
+group_filter_test_() ->
+    [{"Add empty chain filter",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, group_empty(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}},
+     {"Add chain filter",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, group(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}}].
+
+timelimit_filter_test_() ->
+    [{"Add timelimit filter",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, timelimit(1), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}},
+     {"Add infinity timelimit filter",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, timelimit(infinity), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
        end}}].
 
 start() ->
     {ok, MS} = mailfilter:start(infinite),
     MS.
 
+start_mail() ->
+    {ok, MS} = mailfilter:start(infinite),
+    {ok, MR} = mailfilter:add_mail(MS, "x"),
+    MR.
+
 simple() ->
     {simple, fun (_, _) -> {just, something} end}.
 
-chain_empty() ->
-    {chain, []}.
+chain_empty() -> {chain, []}.
 
-chain() ->
-    {chain, [simple(), simple()]}.
+chain() -> {chain, [simple(), simple()]}.
 
+merge() ->
+    fun (Results) ->
+            case lists:any(fun (X) -> X =:= inprogress end, Results)
+                of
+                true -> continue;
+                false -> {just, merged}
+            end
+    end.
+
+group_empty() -> {group, [], merge()}.
+
+group() -> {group, [simple(), simple()], merge()}.
+
+timelimit(Time) -> {timelimit, Time, simple()}.

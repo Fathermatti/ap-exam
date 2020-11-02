@@ -37,7 +37,7 @@ run(FS, Context) -> run(FS, Context, infinity).
 
 run(FS, {Mail, Filt, Data, Callback}, Time) ->
     gen_server:cast(FS,
-                    {run, {Time, Mail, Filt, Data, Callback}}).
+                    {run, {Mail, Filt, Data, Callback, Time}}).
 
 init(Cap) -> {ok, #state{cap = Cap}}.
 
@@ -70,17 +70,16 @@ handle_info({'DOWN', Ref, _, _, _},
 
 -spec execute(context()) -> {pid(), reference()}.
 
-execute({Time, Mail, Filter, Data, Callback}) ->
+execute({Mail, Filt, Data, Callback, Time}) ->
+    FS = self(),
     spawn_monitor(fun () ->
-                          Me = self(),
+                          W = self(),
                           process_flag(trap_exit, true),
-                          Pid = spawn_link(fun () ->
-                                                   Me !
-                                                       evaluate(Me,
-                                                                Filter,
-                                                                Mail,
-                                                                Data)
-                                           end),
+                          Pid = spawn_link(evaluator(FS,
+                                                     W,
+                                                     Filt,
+                                                     Mail,
+                                                     Data)),
                           receive
                               {'EXIT', Pid, _} -> Callback(unchanged);
                               Result -> Callback(Result)
@@ -88,10 +87,13 @@ execute({Time, Mail, Filter, Data, Callback}) ->
                           end
                   end).
 
+evaluator(FS, Watcher, Filter, Mail, Data) ->
+    fun () -> Watcher ! evaluate(FS, Filter, Mail, Data)
+    end.
 
 callback() ->
     Me = self(),
-    fun (Res) -> Me ! Res end.
+    fun (Result) -> Me ! Result end.
 
 -spec evaluate(filter_server(), filter(), mail(),
                data()) -> filter_result().
@@ -103,7 +105,8 @@ evaluate(FS, Filt, Mail, Data) ->
         {group, Filts, Merge} ->
             group(FS, Filts, Merge, Mail, Data);
         {timelimit, Time, Filt} ->
-            timelimit(FS, Time, Filt, Mail, Data)
+            timelimit(FS, Time, Filt, Mail, Data);
+        _ -> unchanged
     end.
 
 simple(Fun, Mail, Data) -> Fun(Mail, Data).
