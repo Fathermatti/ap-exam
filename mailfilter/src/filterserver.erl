@@ -4,11 +4,11 @@
 -export([run/2, start/1]).
 
 % Callback functions
--export([handle_call/3,
+-export([evaluate/4,
+         handle_call/3,
          handle_cast/2,
          handle_info/2,
-         init/1,
-         evaluate/4]).
+         init/1]).
 
 -include("mailfilter.hrl").
 
@@ -76,11 +76,7 @@ execute({Mail, Filt, Data, Callback, Time}) ->
     spawn_monitor(fun () ->
                           W = self(),
                           process_flag(trap_exit, true),
-                          Pid = spawn_link(evaluator(FS,
-                                                     W,
-                                                     Filt,
-                                                     Mail,
-                                                     Data)),
+                          Pid = spawn_link(evaluator(FS, W, Filt, Mail, Data)),
                           receive
                               {'EXIT', Pid, _} -> Callback(unchanged);
                               Result -> Callback(Result)
@@ -89,8 +85,7 @@ execute({Mail, Filt, Data, Callback, Time}) ->
                   end).
 
 evaluator(FS, Watcher, Filt, Mail, Data) ->
-    fun () -> Watcher ! evaluate(FS, Filt, Mail, Data)
-    end.
+    fun () -> Watcher ! evaluate(FS, Filt, Mail, Data) end.
 
 callback() ->
     Me = self(),
@@ -101,7 +96,7 @@ callback() ->
 
 evaluate(FS, Filt, Mail, Data) ->
     case Filt of
-        {simple, Fun} -> simple(Fun, Mail, Data);
+        {simple, Fun} -> Fun(Mail, Data);
         {chain, Filts} -> chain(FS, Filts, Mail, Data);
         {group, Filts, Merge} ->
             group(FS, Filts, Merge, Mail, Data);
@@ -109,8 +104,6 @@ evaluate(FS, Filt, Mail, Data) ->
             timelimit(FS, Time, Filter, Mail, Data);
         _ -> throw(Filt)
     end.
-
-simple(Fun, Mail, Data) -> Fun(Mail, Data).
 
 chain(_FS, [], _Mail, _Data) -> unchanged;
 chain(FS, Filts, Mail, Data) ->

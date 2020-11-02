@@ -47,7 +47,6 @@ init({MS, FS, Mail, Regs}) ->
      #state{ms = MS, fs = FS, ref = Ref, mail = Mail,
             inprogress = Regs, done = #{}}}.
 
-
 active(cast, {add, Label, Filt, Data}, S) ->
     {keep_state, add(S, Label, Filt, Data)};
 active(cast, {result, Ref, Label, {just, Data}},
@@ -62,6 +61,8 @@ active(cast, {result, Ref, Label, {transformed, Mail}},
 active(cast, {result, Ref, Label, {both, Mail, Data}},
        S = #state{ref = Ref}) ->
     {keep_state, both(S, Label, Mail, Data)};
+active(cast, {result, _Ref, _Label, _Result}, _S) ->
+    keep_state_and_data;
 active({call, From}, config, S) ->
     {keep_state_and_data,
      [{reply, From, configuration(S)}]};
@@ -75,7 +76,9 @@ inactive(cast, {add, _, _, _}, _S) ->
     keep_state_and_data;
 inactive(cast, {result, _, _, _}, _S) ->
     keep_state_and_data;
-inactive(cast, close, _S) -> {keep_state_and_data};
+inactive(cast, close, #state{ms = MS}) -> 
+     mailserver:remove(MS, self()),
+     keep_state_and_data;
 inactive({call, From}, complete, S) ->
     {keep_state_and_data, [{reply, From, state(S)}]};
 inactive({call, From}, config, S) ->

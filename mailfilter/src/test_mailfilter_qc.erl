@@ -26,26 +26,60 @@ results() ->
                        {transformed, newmail},
                        {both, data, mail}}]).
 
+transformed_result() ->
+    eqc_gen:elements([{transformed, newmail},
+                      {both, data, mail}]).
+
 -type generator() :: fun(() -> filter_fun()).
 
 %qTHAT GETCONFIG AND STOP RETURNS THE SAME
-% Given to always transforming mails, one is always pending
 
 -spec wellbehaved_filter_fun() -> filter_fun().
 
+g(Time) ->
+    oneof([fun (_M, _D) ->
+                   timer:sleep(Time rem 1000),
+                   unchanged
+           end,
+           fun (M, D) ->
+                   timer:sleep(Time rem 1000),
+                   {just, {M, D}}
+           end,
+           fun (M, D) ->
+                   timer:sleep(Time rem 1000),
+                   {transformed, {M, D}}
+           end,
+           fun (M, D) ->
+                   timer:sleep(Time rem 1000),
+                   {both, {M, D}, {M, D}}
+           end]).
+
+merge() ->
+    fun (Results) ->
+            case lists:any(fun (X) -> X =:= inprogress end, Results)
+                of
+                true -> continue;
+                false -> {just, hey}
+            end
+    end.
+
+filter(FunGen) -> ?SIZED(Size, (filter(Size, FunGen))).
+
+filter(0, FunGen) -> ?LET(Filt, FunGen, {simple, Filt});
+filter(Size, FunGen) ->
+    ?LAZY((oneof([?LET(Filt, FunGen, {simple, Filt}),
+                  ?LET(Filts, (list(filter(Size div 2, FunGen))),
+                       {chain, Filts}),
+                  ?LET(Filts, (list(filter(Size div 2, FunGen))),
+                       {group, Filts, merge()}),
+                  ?LET({Time, Filts}, {int(), filter(Size div 2, FunGen)},
+                       {timelimit, abs(Time * 100) rem 1000, Filts})]))).
+
 wellbehaved_filter_fun() ->
-    ?LET(R, (results()), fun (_M, _D) -> R end).
+    ?LET(R, (g(int())), fun (_M, _D) -> R end).
 
-filter_kind() ->
-    eqc_gen:elements([{unchanged,
-                       {just, truth},
-                       {transformed, newmail},
-                       {both, data, mail}}]).
-
--spec filter(generator()) -> filter().
-
-filter(FunGen) ->
-    ?LET(R, FunGen, (oneof([{simple, R}]))).
+transforming_filter_fun() ->
+    ?LET(R, (transformed_result()), fun (_M, _D) -> R end).
 
 mail() -> eqc_gen:utf8().
 
@@ -59,39 +93,60 @@ start(Cap) ->
     {ok, MS} = mailfilter:start(Cap),
     MS.
 
+add_mail(MS, Mail) ->
+    {ok, MR} = mailfilter:add_mail(MS, Mail),
+    MR.
+
 command(#{ms := none}) ->
     return({call, ?MODULE, start, [infinite]});
-command(#{ms := MS}) ->
-    oneof([{call, mailfilter, add_mail, [MS, mail()]}]).
+command(#{ms := MS, mails := []}) ->
+    return({call, ?MODULE, add_mail, [MS, mail()]});
+command(#{ms := MS, mails := Mails}) ->
+    [{MR, _Mail} | _] = Mails,
+    oneof([{call, ?MODULE, add_mail, [MS, mail()]},
+           {call, mailfilter, enough, [MR]}]).
 
 next_state(S, V, {call, ?MODULE, start, [_Cap]}) ->
     S#{ms := V};
+next_state(#{mails := Mails} = S, MR,
+           {call, ?MODULE, add_mail, [_MS, Mail]}) ->
+    S#{mails := [ {MR, Mail} | Mails]};
 next_state(#{mails := Mails} = S, _V,
-           {call, mailfilter, add_mail, [_MS, Mail]}) ->
-    S#{mails := [Mail | Mails]}.
+           {call, mailfilter, enough, [MR]}) ->
+    S#{mails := proplists:delete(MR, Mails)};
+next_state(S, _V, _C) ->
+    S.
 
-precondition(_S, {call, _, _, _}) -> true.
+precondition(_S, _) -> true.
 
-postcondition(_S, {call, _, _, _}, _R) -> true.
+postcondition(_S, _, _R) -> true.
 
 prop_mail_is_sacred() ->
     ?FORALL(Cmds, (commands(?MODULE)),
             begin
-                {H, S, R} = Result = run_commands(?MODULE, Cmds),
-                #{ms := MS, mails := Mails} = S,
-                Labelled = case MS of
-                               none -> [];
-                               MS ->
-                                   {ok, L} = mailfilter:stop(MS),
-                                   L
-                           end,
-                pretty_commands(?MODULE,
-                                Cmds,
-                                Result,
-                                aggregate(command_names(Cmds),
-                                          R =:= ok andalso
-                                              same_mails(Mails, Labelled)))
+                {_H, #{ms := MS, mails := Mails}, _R} = Result =
+                                                            run_commands(?MODULE,
+                                                                         Cmds),
+                                                                         timer:sleep(10),
+                State = stop(MS),
+                check_commands(Cmds, Result, Mails, State),
+                same_mails(Mails, State)
             end).
+
+stop(none) -> [];
+stop(MS) ->
+    {ok, State} = mailfilter:stop(MS),
+    State.
+
+same_mails(Mails, State) ->
+    lists:sort([Mail || {_MR, Mail} <- Mails]) =:=
+        lists:sort([Mail || {Mail, _} <- State]).
+
+check_commands(Cmds, {_, _, Res} = HSRes, Mails, State) ->
+    pretty_commands(?MODULE,
+                    Cmds,
+                    HSRes,
+                    aggregate(command_names(Cmds), same_mails(Mails, State) )).
 
 instant_filter_fun() ->
     ?LET(A, (eqc_gen:int()),
@@ -115,6 +170,27 @@ prop_insert_post() ->
                 ?IMPLIES((done(S)), (finished(S)))
             end).
 
+any_inprogress(Config) ->
+    lists:any(fun ({_L, Result}) -> Result =:= inprogress
+              end,
+              Config).
+
+g() ->
+    {utf8(), filter(transforming_filter_fun()), int()}.
+
+prop_always_transforming() ->
+    ?FORALL({X, Y, XS}, {g(), g(), eqc_gen:list(5, g())},
+            begin
+                {ok, MS} = mailfilter:start(infinite),
+                lists:map(fun ({L, F, D}) ->
+                                  mailfilter:default(MS, L, F, D)
+                          end,
+                          [X] ++ [Y] ++ XS),
+                {ok, MR} = mailfilter:add_mail(MS, mail),
+                {ok, C} = mailfilter:get_config(MR),
+                any_inprogress(C)
+            end).
+
 done([{_M, [{_, {done, _}}, {_, {done, _}}]}]) -> true;
 done(_) -> false.
 
@@ -126,8 +202,4 @@ finished([{[M],
     true;
 finished(_) -> false.
 
-same_mails(List, Labelled) ->
-    lists:sort(List) =:=
-        lists:sort([Mail || {Mail, _} <- Labelled]).
-
-run() -> eqc:quickcheck(prop_insert_post()).
+run() -> eqc:quickcheck(prop_mail_is_sacred()).

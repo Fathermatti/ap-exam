@@ -1,10 +1,5 @@
 -module(mailfilter).
 
-% You are allowed to split your Erlang code in as many files as you
-% find appropriate.
-% However, you MUST have a module (this file) called mailfilter.
-
-% Export at least the API:
 -export([add_filter/4,
          add_mail/2,
          default/4,
