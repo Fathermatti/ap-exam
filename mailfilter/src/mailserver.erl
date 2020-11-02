@@ -1,7 +1,7 @@
 -module(mailserver).
 
 % Public API
--export([add_filter/4, add_mail/2, start/1, stop/1]).
+-export([add_filter/4, add_mail/2, start/1, stop/1, remove/2]).
 
 % Callback functions
 -export([handle_call/3, handle_cast/2, init/1]).
@@ -13,6 +13,8 @@
 start(FS) -> gen_server:start(?MODULE, FS, []).
 
 stop(MS) -> gen_server:call(MS, stop).
+
+remove(MS, MR) ->  gen_server:cast(MS, {remove_mail, MR}).
 
 add_mail(MS, Mail) ->
     gen_server:call(MS, {add_mail, Mail}).

@@ -34,16 +34,40 @@ stop_test_() ->
     [{"Stop running server",
       fun () ->
               {ok, MS} = mailfilter:start(infinite),
-              {ok, _} = mailfilter:add_mail(MS, <<"x">>),
-              ?assertMatch({ok, [{<<"x">>, []}]},
-                           (mailfilter:stop(MS)))
+              {ok, _} = mailfilter:add_mail(MS, "x"),
+              ?assertMatch({ok, [{"x", []}]}, (mailfilter:stop(MS)))
       end},
      {"Stop nonrunning server",
       fun () ->
               ?assertMatch({error, _}, (mailfilter:stop(pid)))
       end}].
 
-some(_M, _D) -> {just, something}.
+stop_state_test_() ->
+    [{"State with single mail, default filter",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               mailfilter:default(MS, x, simple(), none),
+               {ok, _} = mailfilter:add_mail(MS, "x"),
+               {ok, State} = mailfilter:stop(MS),
+               ?_assertMatch( [{"x",[{x, _}]}], State)
+       end}},
+       {"State with single mail, default and added filters",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               mailfilter:default(MS, x, simple(), none),
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
+               mailfilter:add_filter(MR, y, simple(), none),
+               {ok, State} = mailfilter:stop(MS),
+               [{_Mail, Config}] = State,
+               Labels = [L || {L, _} <- Config],
+               [?_assert((lists:member(x, Labels))),
+                ?_assert((lists:member(y, Labels))),
+               ?_assertMatch([{"x", _Config}], State),
+               ?_assertMatch([{"x", _Config}], State)]
+       end}}].
+
 
 default_test_() ->
     [{"Add default filter",
@@ -51,41 +75,38 @@ default_test_() ->
        fun start/0,
        fun (MS) ->
                ?_assertMatch(ok,
-                             (mailfilter:default(MS,
-                                                 x,
-                                                 {simple,
-                                                  fun (_, _) -> unchanged end},
-                                                 0)))
+                             (mailfilter:default(MS, x, simple(), 0)))
        end}},
-       {"Multiple defaults are added to mail",
+     {"Multiple defaults are added to mail",
       {setup,
        fun start/0,
        fun (MS) ->
-               mailfilter:default(MS, x, {simple, fun some/2}, 0),
-               mailfilter:default(MS, y, {simple, fun some/2}, 0),
-               {ok, MR} = mailfilter:add_mail(MS, <<"x">>),
+               mailfilter:default(MS, x, simple(), 0),
+               mailfilter:default(MS, y, simple(), 0),
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
                {ok, Config} = mailfilter:get_config(MR),
                Labels = [L || {L, _} <- Config],
                [?_assert((lists:member(x, Labels))),
                 ?_assert((lists:member(y, Labels)))]
        end}},
-       {"Duplicate default registers once",
+     {"Duplicate default registers once",
       {setup,
        fun start/0,
        fun (MS) ->
-               mailfilter:default(MS, x, {simple, fun some/2}, 0),
-               mailfilter:default(MS, x, {simple, fun some/2}, 0),
-               {ok, MR} = mailfilter:add_mail(MS, <<"x">>),
+               mailfilter:default(MS, x, simple(), 0),
+               mailfilter:default(MS, x, simple(), 0),
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
                {ok, Config} = mailfilter:get_config(MR),
                ?_assertMatch([{x, _}], Config)
        end}},
-       {"Default added after mail registration not added",
+     {"Default added after mail registration "
+      "not added",
       {setup,
        fun start/0,
        fun (MS) ->
-               mailfilter:default(MS, x, {simple, fun some/2}, 0),
-               {ok, MR} = mailfilter:add_mail(MS, <<"x">>),
-               mailfilter:default(MS, y, {simple, fun some/2}, 0),
+               mailfilter:default(MS, x, simple(), 0),
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
+               mailfilter:default(MS, y, simple(), 0),
                {ok, Config} = mailfilter:get_config(MR),
                ?_assertMatch([{x, _}], Config)
        end}}].
@@ -95,15 +116,15 @@ add_mail_test_() ->
       {setup,
        fun start/0,
        fun (MS) ->
-               [?_assertMatch({ok, _},
-                              (mailfilter:add_mail(MS, <<"abc">>)))]
+               ?_assertMatch({ok, _},
+                             (mailfilter:add_mail(MS, <<"abc">>)))
        end}},
      {"Add mail to empty mail server",
       {setup,
        fun start/0,
        fun (MS) ->
-               [?_assertMatch({ok, _},
-                              (mailfilter:add_mail(MS, <<"abc">>)))]
+               ?_assertMatch({ok, _},
+                             (mailfilter:add_mail(MS, <<"abc">>)))
        end}}].
 
 get_config_test_() ->
@@ -115,9 +136,9 @@ get_config_test_() ->
                                   y,
                                   {simple, fun (_, _) -> {just, truth} end},
                                   0),
-               {ok, MR} = mailfilter:add_mail(MS, <<"x">>),
-               [?_assertMatch({ok, [{y, _}]},
-                             mailfilter:get_config(MR))]
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
+               ?_assertMatch({ok, [{y, _}]},
+                             (mailfilter:get_config(MR)))
        end}}].
 
 enough_test_() ->
@@ -125,10 +146,51 @@ enough_test_() ->
       {setup,
        fun start/0,
        fun (MS) ->
-               {ok, MR} = mailfilter:add_mail(MS, <<"x">>),
-               [?_assertMatch(ok, (mailfilter:enough(MR)))]
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
+               ?_assertMatch(ok, (mailfilter:enough(MR)))
+       end}}].
+
+add_filter_test_() ->
+    [{"Add mail to empty mail server",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
+                mailfilter:add_filter(MR, x, simple(), none),
+                {ok, Config} = mailfilter:get_config(MR),
+               ?_assertMatch([{x, _Result}], Config)
+       end}}].
+
+filter_type_test_() ->
+    [{"Add mail to empty mail server",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
+                mailfilter:add_filter(MR, x, chain_empty(), none),
+                {ok, Config} = mailfilter:get_config(MR),
+               ?_assertMatch([{x, _Result}], Config)
+       end}},
+       {"Add mail to empty mail server",
+      {setup,
+       fun start/0,
+       fun (MS) ->
+               {ok, MR} = mailfilter:add_mail(MS, "x"),
+                mailfilter:add_filter(MR, x, chain(), none),
+                {ok, Config} = mailfilter:get_config(MR),
+               ?_assertMatch([{x, _Result}], Config)
        end}}].
 
 start() ->
-    {ok, Pid} = mailfilter:start(infinite),
-    Pid.
+    {ok, MS} = mailfilter:start(infinite),
+    MS.
+
+simple() ->
+    {simple, fun (_, _) -> {just, something} end}.
+
+chain_empty() ->
+    {chain, []}.
+
+chain() ->
+    {chain, [simple(), simple()]}.
+

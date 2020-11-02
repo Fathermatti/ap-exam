@@ -15,9 +15,12 @@
 
 -type filter_server() :: pid().
 
+-type time() :: integer() | infinity.
+
 -type callback() :: fun((filter_result()) -> none()).
 
--type context() :: {mail(),
+-type context() :: {time(),
+                    mail(),
                     filter(),
                     data(),
                     callback()}.
@@ -30,7 +33,11 @@ start(_) -> {error, invalid_capacity}.
 
 new(Cap) -> gen_server:start(?MODULE, Cap, []).
 
-run(FS, Context) -> gen_server:cast(FS, {run, Context}).
+run(FS, Context) -> run(FS, Context, infinity).
+
+run(FS, {Mail, Filt, Data, Callback}, Time) ->
+    gen_server:cast(FS,
+                    {run, {Time, Mail, Filt, Data, Callback}}).
 
 init(Cap) -> {ok, #state{cap = Cap}}.
 
@@ -63,12 +70,28 @@ handle_info({'DOWN', Ref, _, _, _},
 
 -spec execute(context()) -> {pid(), reference()}.
 
-execute({Mail, Filter, Data, Callback}) ->
-    Me = self(),
+execute({Time, Mail, Filter, Data, Callback}) ->
     spawn_monitor(fun () ->
-                          R = evaluate(Me, Filter, Mail, Data),
-                          Callback(R)
+                          Me = self(),
+                          process_flag(trap_exit, true),
+                          Pid = spawn_link(fun () ->
+                                                   Me !
+                                                       evaluate(Me,
+                                                                Filter,
+                                                                Mail,
+                                                                Data)
+                                           end),
+                          receive
+                              {'EXIT', Pid, _} -> Callback(unchanged);
+                              Result -> Callback(Result)
+                              after Time -> Callback(unchanged), exit(timeout)
+                          end
                   end).
+
+
+callback() ->
+    Me = self(),
+    fun (Res) -> Me ! Res end.
 
 -spec evaluate(filter_server(), filter(), mail(),
                data()) -> filter_result().
@@ -76,7 +99,11 @@ execute({Mail, Filter, Data, Callback}) ->
 evaluate(FS, Filt, Mail, Data) ->
     case Filt of
         {simple, Fun} -> simple(Fun, Mail, Data);
-        {chain, Filts} -> chain(FS, Filts, Mail, Data)
+        {chain, Filts} -> chain(FS, Filts, Mail, Data);
+        {group, Filts, Merge} ->
+            group(FS, Filts, Merge, Mail, Data);
+        {timelimit, Time, Filt} ->
+            timelimit(FS, Time, Filt, Mail, Data)
     end.
 
 simple(Fun, Mail, Data) -> Fun(Mail, Data).
@@ -99,77 +126,31 @@ chainer(FS) ->
             end
     end.
 
-callback() ->
+group(FS, Filts, Merge, Mail, Data) ->
+    Z = lists:zip(lists:seq(1, length(Filts)), Filts),
+    lists:map(fun ({I, Filt}) ->
+                      run(FS, {Mail, Filt, Data, index_callback(I)})
+              end,
+              Z),
+    merge(Merge, [inprogress || _ <- Filts]).
+
+index_callback(Index) ->
     Me = self(),
-    fun (Res) -> Me ! Res end.
+    fun (Res) -> Me ! {Index, Res} end.
 
-% evaluate(Filter, Mail, Data) ->
-%     case Filter of
+merge(Merge, Results) ->
+    receive
+        {I, Result} ->
+            R = insert(I, Result, Results),
+            case Merge(R) of
+                continue -> merge(Merge, R);
+                M -> M
+            end
+    end.
 
-%         {group, [], _Merge} -> unchanged; % ASSUMPTION
-%         {group, Filts, Merge} ->
-%             Me = self(),
-%             N = lists:seq(1, length(Filts)),
-%             F = lists:zip(N, Filts),
-%             lists:map(fun ({I, X}) ->
+insert(I, E, L) ->
+    {L1, [_ | L2]} = lists:split(I - 1, L),
+    L1 ++ [E] ++ L2.
 
-%                               spawn(fun () -> Me ! {I, eval(X, Mail, Data)} end)
-%                       end,
-%                       F),
-%             g({[inprogress || _ <- N], Merge});
-%         {timelimit, Time, Me} ->
-%             Me = self(),
-%             exit(self(), normal)
-%     end.
-
-% g({State, Merge}) ->
-%     receive
-%         {I, Result} ->
-%             S = insert(I, Result, State),
-%             case Merge(S) of
-%                 continue -> g({S, Merge});
-%                 R -> R
-%             end
-%     end.
-
-% t(T) ->
-%     Self = self(),
-%     Pid = spawn(fun () -> Self ! {self(), ok} end),
-%     receive
-%         Result -> Result after T -> exit(Pid, normal), unchanged
-%     end.
-
-% insert(I, E, L) ->
-%     {L1, [_ | L2]} = lists:split(I - 1, L),
-%     L1 ++ [E] ++ L2.
-
-% decide(Mail, Data, Res) ->
-%     case Res of
-%         unchanged -> {Mail, Data};
-%         {transformed, M} -> {M, Data};
-%         {just, D} -> {Mail, D};
-%         {both, M, D} -> {M, D}
-%     end.
-
-% executer(Ref, C) -> fun() -> execute(Ref, C) end.
-
-% execute(Ref, C) ->
-%     R = evaluate(C, Filt),
-%     gen_statem:cast(C#context.mr, {done, Ref, R}).
-
-% evaluate(C, {simple, Fun}) -> Fun(C#context.mail, C#context.data);
-% evaluate(C, {chain, []}) -> unchanged;
-% evaluate(C, {chain, Filts}) ->
-%     P = fun (F, {M, D, _}) ->
-%         Me = self(),
-%                          Func = fun () ->
-%                             Me ! {result, evaluate(C#context{mail = M, data = D}, F)}
-%                         end,
-%                         mailserver:queue(C#context.ms, Func),
-%                         R = receive Result -> Result end,
-%                         {M2, D2} = decide(M, D, R),
-%                         {M2, D2, R}
-%                 end,
-%             {_, _, Res} = lists:foldl(P, {Mail, Data, {}}, Filts),
-%             Res.
-
+timelimit(FS, Time, Filt, Mail, Data) ->
+    run(FS, {Mail, Filt, Data, callback()}, Time).

@@ -28,6 +28,9 @@ results() ->
 
 -type generator() :: fun(() -> filter_fun()).
 
+%qTHAT GETCONFIG AND STOP RETURNS THE SAME
+% Given to always transforming mails, one is always pending
+
 -spec wellbehaved_filter_fun() -> filter_fun().
 
 wellbehaved_filter_fun() ->
