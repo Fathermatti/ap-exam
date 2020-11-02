@@ -1,4 +1,4 @@
--module(test_mailanalyzer).
+-module(test_filterserver).
 
 -export([]).
 
@@ -15,7 +15,7 @@
 % chain_test_() ->
 %     [{"Stop running server",
 %       fun () ->
-%               R = mailanalyzer:evaluate(pid, {chain, []}, mail, data),
+%               R = filterserve:evaluate(pid, {chain, []}, mail, data),
 %               ?assertMatch(unchanged, R)
 %       end},
 %       {"Stop running server",

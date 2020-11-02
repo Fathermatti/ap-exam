@@ -2,13 +2,11 @@
 
 -export([wellbehaved_filter_fun/0]). % Remember to export the other function from Q2.2
 
-% You are allowed to split your test code in as many files as you
-% think is appropriate, just remember that they should all start with
-% 'test_'.
-% But you MUST have a module (this file) called test_mailfilter.
 -include_lib("eqc/include/eqc.hrl").
 
 -include("apqc_statem.hrl").
+
+-include("mailfilter.hrl").
 
 -behaviour(apqc_statem).
 
@@ -21,32 +19,6 @@
 -compile(export_all).
 
 %test_all() -> eunit:test(register_test_(), [verbose]).
-
--type mail() :: any().
-
--type data() :: any().
-
--type label() :: any().
-
--type result() :: {done, data()} | inprogress.
-
--type labelled_result() :: {label(), result()}.
-
--type filter_result() :: {just, data()} |
-                         {transformed, mail()} |
-                         unchanged |
-                         {both, mail(), data()}.
-
--type filter_fun() :: fun((mail(),
-                           data()) -> filter_result()).
-
--type filter() :: {simple, filter_fun()} |
-                  {chain, [filter()]} |
-                  {group, [filter()], merge_fun()} |
-                  {timelimit, timeout(), filter()}.
-
--type merge_fun() :: fun(([filter_result() |
-                           inprogress]) -> filter_result() | continue).
 
 results() ->
     eqc_gen:elements([{unchanged,
@@ -81,9 +53,8 @@ mail() -> eqc_gen:utf8().
 initial_state() -> #{ms => none, mails => []}.
 
 start(Cap) ->
-        {ok, MS } = mailfilter:start(Cap),
-        MS.
-
+    {ok, MS} = mailfilter:start(Cap),
+    MS.
 
 command(#{ms := none}) ->
     return({call, ?MODULE, start, [infinite]});
@@ -100,7 +71,7 @@ precondition(_S, {call, _, _, _}) -> true.
 
 postcondition(_S, {call, _, _, _}, _R) -> true.
 
-prop_registration() ->
+prop_mail_is_sacred() ->
     ?FORALL(Cmds, (commands(?MODULE)),
             begin
                 {H, S, R} = Result = run_commands(?MODULE, Cmds),
@@ -119,6 +90,41 @@ prop_registration() ->
                                               same_mails(Mails, Labelled)))
             end).
 
+instant_filter_fun() ->
+    ?LET(A, (eqc_gen:int()),
+         fun (M, _D) ->
+                 case M of
+                     [] -> {transformed, [A]};
+                     [X] -> {just, [A | X]}
+                 end
+         end).
+
+prop_insert_post() ->
+    ?FORALL({F1, F2},
+            {filter(instant_filter_fun()),
+             filter(instant_filter_fun())},
+            begin
+                {ok, MS} = mailfilter:start(infinite),
+                mailfilter:default(MS, x, F1, []),
+                mailfilter:default(MS, y, F2, []),
+                mailfilter:add_mail(MS, []),
+                {ok, S} = mailfilter:stop(MS),
+                ?IMPLIES((done(S)), (finished(S)))
+            end).
+
+done([{_M, [{_, {done, _}}, {_, {done, _}}]}]) -> true;
+done(_) -> false.
+
+finished([{[M],
+           [{x, {done, [M]}}, {y, {done, [_ | M]}}]}]) ->
+    true;
+finished([{[M],
+           [{x, {done, [_ | M]}}, {y, {done, [M]}}]}]) ->
+    true;
+finished(_) -> false.
+
 same_mails(List, Labelled) ->
     lists:sort(List) =:=
         lists:sort([Mail || {Mail, _} <- Labelled]).
+
+run() -> eqc:quickcheck(prop_insert_post()).

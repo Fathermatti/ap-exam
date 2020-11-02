@@ -13,7 +13,11 @@
          start/1,
          stop/1]).
 
-start(Cap) -> mailserver:start(Cap).
+start(Cap) -> 
+    case filterserver:start(Cap) of 
+        {ok, FS} -> mailserver:start(FS);
+        Error -> Error
+    end.
 
 stop(MS) ->
     try mailserver:stop(MS) of
@@ -27,7 +31,7 @@ default(MS, Label, Filt, Data) ->
 
 add_mail(MS, Mail) -> mailserver:add_mail(MS, Mail).
 
-get_config(MR) -> mailanalyzer:get_config(MR).
+get_config(MR) -> {ok, mailanalyzer:get_config(MR)}.
 
 enough(MR) -> mailanalyzer:close(MR).
 

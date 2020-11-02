@@ -6,9 +6,8 @@
 -export([add_filter/4,
          close/1,
          complete/1,
-         evaluate/4,
          get_config/1,
-         new/3]).
+         new/4]).
 
 % Callback API
 -export([active/3,
@@ -16,10 +15,10 @@
          inactive/3,
          init/1]).
 
--record(state, {ref, ms, mail, running, done}).
+-record(state, {ref, ms, fs, mail, running, done}).
 
-new(MS, Mail, Filters) ->
-    gen_statem:start(?MODULE, {MS, Mail, Filters}, []).
+new(MS, FS, Mail, Filters) ->
+    gen_statem:start(?MODULE, {MS, FS, Mail, Filters}, []).
 
 add_filter(MR, Label, Filt, Data) ->
     gen_statem:cast(MR, {add, Label, Filt, Data}).
@@ -32,9 +31,9 @@ complete(MR) -> gen_statem:call(MR, complete).
 
 callback_mode() -> state_functions.
 
-init({MS, Mail, Filters}) ->
+init({MS, FS, Mail, Filters}) ->
     Ref = make_ref(),
-    run(MS, self(), Ref, Mail, Filters),
+    run(FS, Ref, Mail, Filters),
     {ok,
      active,
      #state{ref = Ref, ms = MS, mail = Mail,
@@ -46,8 +45,11 @@ active(cast, {done, Ref, Label, {just, Data}},
 active(cast, {done, Ref, Label, unchanged},
        S = #state{ref = Ref}) ->
     {keep_state, unchanged(S, Label)};
+% active(cast, {done, Ref, Label, {transformed, Mail}},
+%        S = #state{ref = Ref}) ->
+%     {keep_state, transform(S, Label)};
 active({call, From}, config, S) ->
-    {keep_state_and_data, [{reply, From, result(S)}]};
+    {keep_state_and_data, [{reply, From, configuration(S)}]};
 active({call, From}, complete, S) ->
     {next_state, inactive, S, [{reply, From, result(S)}]};
 active(cast, close, S) -> {next_state, inactive, S}.
@@ -69,7 +71,19 @@ inactive(cast, close, _S) -> {keep_state_and_data};
 inactive({call, From}, complete, S) ->
     {keep_state_and_data, [{reply, From, result(S)}]};
 inactive({call, From}, config, S) ->
-    {keep_state_and_data, [{reply, From, result(S)}]}.
+    {keep_state_and_data, [{reply, From, configuration(S)}]}.
+
+configuration(#state{running = Running,
+              done = Done}) ->
+     maps:values(maps:map(fun (Label, {_, _}) ->
+                                  {Label, inprogress}
+                          end,
+                          Running))
+         ++
+         maps:values(maps:map(fun (Label, {_, Data}) ->
+                                      {Label, {done, Data}}
+                              end,
+                              Done)).
 
 result(#state{mail = Mail, running = Running,
               done = Done}) ->
@@ -84,18 +98,20 @@ result(#state{mail = Mail, running = Running,
                               end,
                               Done))}.
 
-run(MS, MR, Ref, Mail, Filters) ->
-    maps:map(fun (Label, {Filter, Data}) ->
-                     mailserver:execute(MS,
-                                        executer(MS,
-                                                 MR,
-                                                 Ref,
-                                                 Mail,
-                                                 Label,
-                                                 Filter,
-                                                 Data))
-             end,
-             Filters).
+callback(MR, Ref, Label) ->
+    fun (Res) ->
+            gen_statem:cast(MR, {done, Ref, Label, Res})
+    end.
+
+run(FS, Ref, Mail, Filters) ->
+    maps:map(execute(FS, Ref, Mail), Filters).
+
+execute(FS, Ref, Mail) ->
+    Me = self(),
+    fun (Label, {Filt, Data}) ->
+            Call = callback(Me, Ref, Label),
+            filterserver:run(FS, {Mail, Filt, Data, Call})
+    end.
 
 commit(#state{running = R, done = D} = S, Label,
        Data) ->
@@ -126,104 +142,3 @@ transform(#state{running = R, done = D} = S, Label,
                     done = #{Label => {{Filter, Data}, Data}}};
         error -> S
     end.
-
-executer(MS, MR, Ref, Mail, Label, Filter, Data) ->
-    fun () ->
-            R = evaluate(MS, Filter, Mail, Data),
-            gen_statem:cast(MR, {done, Ref, Label, R})
-    end.
-
-evaluation_executer(MS, Filt, Mail, Data) ->
-    Me = self(),
-    fun () -> Me ! evaluate(MS, Filt, Mail, Data) end.
-
-evaluate(MS, {simple, Fun}, Mail, Data) ->
-    Fun(Mail, Data);
-evaluate(MS, {chain, []}, Mail, Data) -> unchanged;
-evaluate(MS, {chain, Filts}, Mail, Data) ->
-    {L, [Last]} = lists:split(length(Filts) - 1, Filts),
-    P = fun (F, {M, D}) ->
-                mailserver:execute(MS,
-                                   evaluation_executer(MS, F, M, D)),
-                receive
-                    unchanged -> {M, D};
-                    {just, Data} -> {M, Data};
-                    {transformed, Mail} -> {Mail, D};
-                    {both, Mail, Data} -> {Mail, Data}
-                end
-        end,
-    {M, D} = lists:foldl(P, {Mail, Data}, L),
-    mailserver:execute(MS,
-                       evaluation_executer(MS, Last, M, D)),
-    receive R -> R end.
-
-% evaluate(Filter, Mail, Data) ->
-%     case Filter of
-
-%         {group, [], _Merge} -> unchanged; % ASSUMPTION
-%         {group, Filts, Merge} ->
-%             Me = self(),
-%             N = lists:seq(1, length(Filts)),
-%             F = lists:zip(N, Filts),
-%             lists:map(fun ({I, X}) ->
-
-%                               spawn(fun () -> Me ! {I, eval(X, Mail, Data)} end)
-%                       end,
-%                       F),
-%             g({[inprogress || _ <- N], Merge});
-%         {timelimit, Time, Me} ->
-%             Me = self(),
-%             exit(self(), normal)
-%     end.
-
-% g({State, Merge}) ->
-%     receive
-%         {I, Result} ->
-%             S = insert(I, Result, State),
-%             case Merge(S) of
-%                 continue -> g({S, Merge});
-%                 R -> R
-%             end
-%     end.
-
-% t(T) ->
-%     Self = self(),
-%     Pid = spawn(fun () -> Self ! {self(), ok} end),
-%     receive
-%         Result -> Result after T -> exit(Pid, normal), unchanged
-%     end.
-
-% insert(I, E, L) ->
-%     {L1, [_ | L2]} = lists:split(I - 1, L),
-%     L1 ++ [E] ++ L2.
-
-% decide(Mail, Data, Res) ->
-%     case Res of
-%         unchanged -> {Mail, Data};
-%         {transformed, M} -> {M, Data};
-%         {just, D} -> {Mail, D};
-%         {both, M, D} -> {M, D}
-%     end.
-
-% executer(Ref, C) -> fun() -> execute(Ref, C) end.
-
-% execute(Ref, C) ->
-%     R = evaluate(C, Filt),
-%     gen_statem:cast(C#context.mr, {done, Ref, R}).
-
-% evaluate(C, {simple, Fun}) -> Fun(C#context.mail, C#context.data);
-% evaluate(C, {chain, []}) -> unchanged;
-% evaluate(C, {chain, Filts}) ->
-%     P = fun (F, {M, D, _}) ->
-%         Me = self(),
-%                          Func = fun () ->
-%                             Me ! {result, evaluate(C#context{mail = M, data = D}, F)}
-%                         end,
-%                         mailserver:queue(C#context.ms, Func),
-%                         R = receive Result -> Result end,
-%                         {M2, D2} = decide(M, D, R),
-%                         {M2, D2, R}
-%                 end,
-%             {_, _, Res} = lists:foldl(P, {Mail, Data, {}}, Filts),
-%             Res.
-
