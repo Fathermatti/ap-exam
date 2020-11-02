@@ -225,6 +225,40 @@ timelimit_filter_test_() ->
                              (mailfilter:get_config(MR)))
        end}}].
 
+filter_result_test_() ->
+    [{"Add filter with unchanged result",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, unchanged(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}},
+     {"Add filter with just result",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, just(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}},
+     {"Add filter with transformed result",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, transformed(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}},
+     {"Add filter with both result",
+      {setup,
+       fun start_mail/0,
+       fun (MR) ->
+               mailfilter:add_filter(MR, x, both(), none),
+               ?_assertMatch({ok, [{x, _Result}]},
+                             (mailfilter:get_config(MR)))
+       end}}].
+
 start() ->
     {ok, MS} = mailfilter:start(infinite),
     MS.
@@ -233,6 +267,15 @@ start_mail() ->
     {ok, MS} = mailfilter:start(infinite),
     {ok, MR} = mailfilter:add_mail(MS, "x"),
     MR.
+
+unchanged() -> {simple, fun (_, _) -> unchanged end}.
+
+just() -> {simple, fun (_, _) -> {just, a} end}.
+
+transformed() ->
+    {simple, fun (_, _) -> {transformed, a} end}.
+
+both() -> {simple, fun (_, _) -> {both, a, b} end}.
 
 simple() ->
     {simple, fun (_, _) -> {just, something} end}.

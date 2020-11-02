@@ -47,6 +47,9 @@ init({MS, FS, Mail, Regs}) ->
      #state{ms = MS, fs = FS, ref = Ref, mail = Mail,
             inprogress = Regs, done = #{}}}.
 
+
+active(cast, {add, Label, Filt, Data}, S) ->
+    {keep_state, add(S, Label, Filt, Data)};
 active(cast, {result, Ref, Label, {just, Data}},
        #state{ref = Ref} = S) ->
     {keep_state, just(S, Label, Data)};
@@ -59,16 +62,14 @@ active(cast, {result, Ref, Label, {transformed, Mail}},
 active(cast, {result, Ref, Label, {both, Mail, Data}},
        S = #state{ref = Ref}) ->
     {keep_state, both(S, Label, Mail, Data)};
-active({call, From}, config, #state{inprogress = I, done = D} = S) ->
+active({call, From}, config, S) ->
     {keep_state_and_data,
      [{reply, From, configuration(S)}]};
 active({call, From}, complete, S) ->
     {next_state, inactive, S, [{reply, From, state(S)}]};
 active(cast, close, #state{ms = MS} = S) ->
     mailserver:remove(MS, self()),
-    {next_state, inactive, S};
-active(cast, {add, Label, Filt, Data}, S) ->
-    {keep_state, add(S, Label, Filt, Data)}.
+    {next_state, inactive, S}.
 
 inactive(cast, {add, _, _, _}, _S) ->
     keep_state_and_data;
@@ -89,8 +90,7 @@ configuration(#state{inprogress = I, done = D}) ->
             || {Label, _Reg} <- maps:to_list(I)],
     Done = [{Label, {done, Result}}
             || {Label, {_Filt, _Data, Result}} <- maps:to_list(D)],
-     maps:to_list(I) ++ [heya] ++  maps:to_list(D) ++ [succ],
-     Prog ++ Done.
+      Prog ++ Done.
 
 callback(MR, Ref, Label) ->
     fun (Res) ->
@@ -121,7 +121,7 @@ unchanged(#state{inprogress = R, done = D} = S,
     case maps:take(Label, R) of
         {{Filter, Data}, Rest} ->
             S#state{inprogress = Rest,
-                    done = D#{Label => {{Filter, Data}, Data}}};
+                    done = D#{Label => {Filter, Data, Data}}};
         error -> S
     end.
 

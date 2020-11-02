@@ -7,7 +7,8 @@
 -export([handle_call/3,
          handle_cast/2,
          handle_info/2,
-         init/1]).
+         init/1,
+         evaluate/4]).
 
 -include("mailfilter.hrl").
 
@@ -87,8 +88,8 @@ execute({Mail, Filt, Data, Callback, Time}) ->
                           end
                   end).
 
-evaluator(FS, Watcher, Filter, Mail, Data) ->
-    fun () -> Watcher ! evaluate(FS, Filter, Mail, Data)
+evaluator(FS, Watcher, Filt, Mail, Data) ->
+    fun () -> Watcher ! evaluate(FS, Filt, Mail, Data)
     end.
 
 callback() ->
@@ -104,9 +105,9 @@ evaluate(FS, Filt, Mail, Data) ->
         {chain, Filts} -> chain(FS, Filts, Mail, Data);
         {group, Filts, Merge} ->
             group(FS, Filts, Merge, Mail, Data);
-        {timelimit, Time, Filt} ->
-            timelimit(FS, Time, Filt, Mail, Data);
-        _ -> unchanged
+        {timelimit, Time, Filter} ->
+            timelimit(FS, Time, Filter, Mail, Data);
+        _ -> throw(Filt)
     end.
 
 simple(Fun, Mail, Data) -> Fun(Mail, Data).
@@ -156,4 +157,5 @@ insert(I, E, L) ->
     L1 ++ [E] ++ L2.
 
 timelimit(FS, Time, Filt, Mail, Data) ->
-    run(FS, {Mail, Filt, Data, callback()}, Time).
+    run(FS, {Mail, Filt, Data, callback()}, Time),
+    receive R -> R end.
