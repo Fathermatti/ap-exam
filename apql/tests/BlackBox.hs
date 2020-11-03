@@ -144,18 +144,11 @@ precedenceTests = testGroup
   @?= parseString "a(x) if not (not (b(x) and c()) or true)."
   ]
 
-
 clausifyTests = testGroup
-  "Program tests"
+  "Clausify tests"
   [ let t = "p(x) if q(x) and not (r(x) and x is not a)."
-    in  testCase t $ clausify (p t)  @?= Right (IDB [] [])
+    in  testCase t $ clausify  [Rule (Atom "p1" [TVar "x"]) (CEq (TVar "x") (TData "a"))] @?= Right (IDB [] [])
   ]
-
-p :: String -> Program
-p t = case parseString t of
-  Right x -> x
-  Left _ -> error "shiet"
-
 
 -- testCaseBad s t =
 --   testCase ("*" ++ s) $

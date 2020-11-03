@@ -5,8 +5,33 @@ import Types
 import Data.List
 
 clausify :: Program -> Either ErrMsg IDB
-clausify p = case map t p of 
-    x -> Right (IDB (specs x) x)     
+clausify p = 
+    let x = concatMap t p in
+    if all verify x then Right (IDB (specs x) x) else Left (EUser "failed verification")     
+
+verify :: Clause -> Bool
+verify (Clause head positives tests) = 
+    let p = atomsVNames positives in 
+        let h = atomVNames head in
+           let t = testVNames tests in
+                    all (`elem` p) (h ++ t)
+             
+testVNames :: [Test] -> [VName]
+testVNames tests = let a = foldl testAtoms [] tests in atomsVNames a
+
+testAtoms :: [Atom] -> Test -> [Atom]
+testAtoms atoms (TNot atom) = atom : atoms
+testAtoms atoms _ = atoms
+
+atomsVNames :: [Atom] -> [VName]
+atomsVNames = concatMap atomVNames
+
+atomVNames :: Atom -> [VName]
+atomVNames (Atom _ terms) = foldl vars [] terms
+
+vars :: [VName] -> Term -> [VName]
+vars vs (TVar v) = v : vs
+vars vs (TData _) = vs
 
 specs :: [Clause] -> [(PName, Int)]
 specs p = nub $ foldl s [] p
@@ -58,14 +83,14 @@ tests cond = case cond of
     CNot (CAtom atom) -> [TNot atom]
     CEq t1 t2 -> [TEq t1 t2]
     CNot (CEq t1 t2) ->  [TNeq t1 t2]
+    CAnd c1 c2 -> tests c1 ++ tests c2
+    _ -> []
 
 transform :: Rule -> [Rule]
 transform rule = case rule of 
     Rule atom cond -> 
         let c = second $ first cond in
             third (atom, c)
-
-
 
 
 stratify :: IDB -> [PSpec] -> Either ErrMsg [[PSpec]]
