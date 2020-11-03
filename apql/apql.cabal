@@ -1,0 +1,67 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: ece1bfb4d0644a925577522bd3d86eaa2d7fbdd3e147df77cfd686e173c9803c
+
+name:           apql
+version:        0.0.0
+build-type:     Simple
+
+library
+  exposed-modules:
+      Types
+      Parser
+      Preprocessor
+      Engine
+  other-modules:
+      Utils
+      ParserImpl
+      PreprocessorImpl
+      EngineImpl
+  hs-source-dirs:
+      src
+  build-depends:
+      base
+    , containers
+    , mtl
+    , parsec
+    , text
+  default-language: Haskell2010
+
+executable apql
+  main-is: Main.hs
+  other-modules:
+      Paths_apql
+  hs-source-dirs:
+      app
+  build-depends:
+      apql
+    , base
+    , containers
+    , mtl
+    , parsec
+    , text
+  default-language: Haskell2010
+
+test-suite primary-test-suite
+  type: exitcode-stdio-1.0
+  main-is: BlackBox.hs
+  other-modules:
+      Paths_apql
+  hs-source-dirs:
+      tests
+  build-depends:
+      QuickCheck
+    , apql
+    , base
+    , containers
+    , mtl
+    , parsec
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
+    , text
+  default-language: Haskell2010
