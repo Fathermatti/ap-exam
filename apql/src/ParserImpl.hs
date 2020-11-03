@@ -29,23 +29,25 @@ program :: ReadP Program
 program = do
   skipSpaces
   r <- rule `sepBy1` symb '.'
+  symb '.'
   skipSpaces
   eof
   return r
 
-rule = do 
+rule = do
   a <- atom
   c <- ruleRule
   return $ Rule a c
 
-ruleRule = do
-  word "if"
-  cond
-  <++ do
+ruleRule =
+  do
+      word "if"
+      cond
+    <++ do
           word "unless"
-          c <- cond 
+          c <- cond
           return $ CNot c
-  <++ do
+    <++ do
           return CTrue
 
 atom = do

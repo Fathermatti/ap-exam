@@ -4,7 +4,7 @@
 
 import           Types
 import           Parser
-import           Preprocessor
+import Preprocessor 
 import           Engine
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -15,96 +15,88 @@ main = defaultMain $ localOption (mkTimeout 1000000) tests
 tests :: TestTree
 tests = testGroup
   "Simple parsing"
-  [programTests, atomTests, ruleTests, conditionTests, precedenceTests]
+  [programTests, atomTests, ruleTests, conditionTests, precedenceTests, clausifyTests]
 
 programTests = testGroup
   "Program tests"
-  [ let t = "x(). y()"
+  [ let t = "x(). y()."
     in  testCase t $ parseString t @?= Right
           [Rule (Atom "x" []) CTrue, Rule (Atom "y" []) CTrue]
-  , testCase "x().\\ny()" $ parseString "x().\ny()" @?= Right
+  , testCase "x().\\ny()." $ parseString "x().\ny()." @?= Right
     [Rule (Atom "x" []) CTrue, Rule (Atom "y" []) CTrue]
-  , testCase " \\nx().\\n  y()  \\n\\n"
-  $   parseString " \nx().\n  y()  \n\n"
+  , testCase " \\nx().\\n  y().  \\n\\n"
+  $   parseString " \nx().\n  y()  \n\n."
   @?= Right [Rule (Atom "x" []) CTrue, Rule (Atom "y" []) CTrue]
   ]
 
 atomTests = testGroup
   "Atom tests"
-  [ let t = "x()"
+  [ let t = "x()."
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) CTrue]
-  , let t = " x() "
+  , let t = " x(). "
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) CTrue]
-  , let t = "x(t)"
+  , let t = "x(t)."
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TVar "t"]) CTrue]
-  , let t = "x(\"y\") "
+  , let t = "x(\"y\") ."
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TData "y"]) CTrue]
-  , let t = "x(\"y\", z) "
+  , let t = "x(\"y\", z) ."
     in  testCase t $ parseString t @?= Right
           [Rule (Atom "x" [TData "y", TVar "z"]) CTrue]
   ]
 
 ruleTests = testGroup
   "Rule tests"
-  [ let t = "x(X) if y(Y)"
+  [ let t = "x(X) if y(Y)."
     in  testCase t $ parseString t @?= Right
           [Rule (Atom "x" [TVar "X"]) (CAtom (Atom "y" [TVar "Y"]))]
-  , let t = "x(X) unless y(Y)"
+  , let t = "x(X) unless y(Y)."
     in  testCase t $ parseString t @?= Right
           [Rule (Atom "x" [TVar "X"]) (CNot (CAtom (Atom "y" [TVar "Y"])))]
   ]
 
 conditionTests = testGroup
   "Condition tests"
-  [ let t = "x() if y is z"
+  [ let t = "x() if y is z."
     in  testCase t $ parseString t @?= Right
           [Rule (Atom "x" []) (CEq (TVar "y") (TVar "z"))]
-  , let t = "x() if y is not z"
+  , let t = "x() if y is not z."
     in  testCase t $ parseString t @?= Right
           [Rule (Atom "x" []) (CNot (CEq (TVar "y") (TVar "z")))]
-  , let t = "x() if true"
+  , let t = "x() if true."
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) CTrue]
-  , let t = "x() if false"
+  , let t = "x() if false."
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) (CNot CTrue)]
-  , let t = "x() if not true"
+  , let t = "x() if not true."
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) (CNot CTrue)]
-  , let t = "x() if y() and z()"
+  , let t = "x() if y() and z()."
     in
       testCase t $ parseString t @?= Right
         [Rule (Atom "x" []) (CAnd (CAtom (Atom "y" [])) (CAtom (Atom "z" [])))]
-  , let t = "x() if not true"
+  , let t = "x() if not true."
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) (CNot CTrue)]
-  , let t = "x() if not not true"
+  , let t = "x() if not not true."
     in  testCase t $ parseString t @?= Right
           [Rule (Atom "x" []) (CNot (CNot CTrue))]
-  , let t = "x() if y() or z()"
+  , let t = "x() if y() or z()."
     in  testCase t $ parseString t @?= Right
           [Rule (Atom "x" []) (COr (CAtom (Atom "y" [])) (CAtom (Atom "z" [])))]
-  , let t = "x() if y() implies z()"
+  , let t = "x() if y() implies z()."
     in  testCase t $ parseString t @?= Right
           [ Rule (Atom "x" [])
                  (COr (CNot (CAtom (Atom "y" []))) (CAtom (Atom "z" [])))
           ]
-  , let t = "x() if not true"
+  , let t = "x() if not true."
     in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) (CNot CTrue)]
-  , let t = "x() if y() and z()"
+  , let t = "x() if y() and z()."
     in
       testCase t $ parseString t @?= Right
         [Rule (Atom "x" []) (CAnd (CAtom (Atom "y" [])) (CAtom (Atom "z" [])))]
-  , let t = "x() if not true"
-    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) (CNot CTrue)]
-  , let t = "x() if not true"
-    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) (CNot CTrue)]
-  , let t = "x() if not true"
-    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) (CNot CTrue)]
-  , let t = "x() if not true"
-    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) (CNot CTrue)]
   ]
 
 
 precedenceTests = testGroup
   "Precedence tests"
-  [ let t = "x() if x() or y() and z()"
+  [ let t = "x() if x() or y() and z()."
     in  testCase t $ parseString t @?= Right
           [ Rule
               (Atom "x" [])
@@ -113,9 +105,9 @@ precedenceTests = testGroup
               )
           ]
   , testCase "Above using redundant parenthesis"
-  $   parseString "x() if x() or y() and z()"
-  @?= parseString "x() if x() or (y() and z())"
-  , let t = "x() if x() or not y() and z()"
+  $   parseString "x() if x() or y() and z()."
+  @?= parseString "x() if x() or (y() and z())."
+  , let t = "x() if x() or not y() and z()."
     in  testCase t $ parseString t @?= Right
           [ Rule
               (Atom "x" [])
@@ -124,9 +116,9 @@ precedenceTests = testGroup
               )
           ]
   , testCase "Above using redundant parenthesis"
-  $   parseString "x() if x() or not y() and z()"
-  @?= parseString "x() if x() or ((not y()) and z())"
-  , let t = "x() if x() or not y() and z()"
+  $   parseString "x() if x() or not y() and z()."
+  @?= parseString "x() if x() or ((not y()) and z())."
+  , let t = "x() if x() or not y() and z()."
     in  testCase t $ parseString t @?= Right
           [ Rule
               (Atom "x" [])
@@ -134,7 +126,7 @@ precedenceTests = testGroup
                    (CAnd (CNot (CAtom (Atom "y" []))) (CAtom (Atom "z" [])))
               )
           ]
-  , let t = "a(x) unless b(x) and c() implies true"
+  , let t = "a(x) unless b(x) and c() implies true."
     in
       testCase t $ parseString t @?= Right
         [ Rule
@@ -148,10 +140,21 @@ precedenceTests = testGroup
             )
         ]
   , testCase "Above using rewrite"
-  $   parseString "a(x) unless b(x) and c() implies true"
-  @?= parseString "a(x) if not (not (b(x) and c()) or true)"
+  $   parseString "a(x) unless b(x) and c() implies true."
+  @?= parseString "a(x) if not (not (b(x) and c()) or true)."
   ]
 
+
+clausifyTests = testGroup
+  "Program tests"
+  [ let t = "p(x) if q(x) and not (r(x) and x is not a)."
+    in  testCase t $ clausify (p t)  @?= Right (IDB [] [])
+  ]
+
+p :: String -> Program
+p t = case parseString t of
+  Right x -> x
+  Left _ -> error "shiet"
 
 
 -- testCaseBad s t =
