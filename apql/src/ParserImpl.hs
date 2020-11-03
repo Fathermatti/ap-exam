@@ -16,11 +16,9 @@ parseString s = case readP_to_S program s of
 
 type Parser a = ReadP a   -- may use synomym for easier portability to Parsec
 
-keyword :: [Char] -> Bool
 keyword x =
   x `elem` ["false", "if", "implies", "in", "is", "not", "true", "unless"]
 
-nStart :: ReadP Char
 nStart = satisfy $ \x -> x `elem` (['a' .. 'z'] ++ ['A' .. 'Z'])
 
 chars = ['a' .. 'z'] ++ ['A' .. 'Z'] ++ ['_'] ++ ['0' .. '9']
@@ -36,16 +34,98 @@ program = do
   return r
 
 rule = do
-  p <- name
-  symb '('
-  t <- termz
-  symb ')'
-  return $ Rule (Atom p t) CTrue
+    a <- atom
+    return $ Rule a CTrue
+    <|> do
+    a <- atom
+    word "if" 
+    c <- cond
+    return $ Rule a c
+    <|> do
+    a <- atom
+    word "unless"
+    c <- cond
+    return $ Rule a (CNot c)
+  
+atom = do
+    p <- name
+    symb '('
+    t <- termz
+    symb ')'
+    return $ Atom p t
+
+word s = lexeme $ do
+  string s
+
+cond =
+  cond' `chainr1` impliesCond
+
+impliesCond =
+  lexeme
+    $   do
+          word "implies"
+          return $ COr . CNot
+
+cond' = do 
+      cond'' `chainl1` orCond
+
+orCond =
+  lexeme
+    $   do
+          word "or"
+          return COr
+
+cond'' = do 
+      cond''' `chainl1` andCond
+
+andCond =
+  lexeme
+    $   do
+          word "and"
+          return CAnd
+
+cond''' = do 
+      word "not"
+      c  <- cond'''
+      return $ CNot c
+      <|> 
+      cond''''
+
+
+cond'''' = do 
+      a <- atom
+      return $ CAtom a
+      <|> 
+      do
+      t1 <- term
+      word "is" 
+      t2 <- term
+      return $ CEq t1 t2
+      <|> 
+      do
+      t1 <- term
+      word "is" 
+      word "not" 
+      t2 <- term
+      return $ CNot (CEq t1 t2)
+      <|> 
+      do
+      word "true"
+      return CTrue
+      <|> 
+      do
+      word "false"
+      return $ CNot CTrue
+      <|> 
+      do
+      symb '('
+      c <- cond
+      symb ')'
+      return c
 
 name = lexeme $ do
   c  <- nStart
   cs <- many nChar
-
   let id = c : cs
   if not $ keyword id then return id else pfail
 
