@@ -33,95 +33,85 @@ program = do
   eof
   return r
 
-rule = do
-    a <- atom
-    return $ Rule a CTrue
-    <|> do
-    a <- atom
-    word "if" 
-    c <- cond
-    return $ Rule a c
-    <|> do
-    a <- atom
-    word "unless"
-    c <- cond
-    return $ Rule a (CNot c)
-  
+rule = do 
+  a <- atom
+  c <- ruleRule
+  return $ Rule a c
+
+ruleRule = do
+  word "if"
+  cond
+  <++ do
+          word "unless"
+          c <- cond 
+          return $ CNot c
+  <++ do
+          return CTrue
+
 atom = do
-    p <- name
-    symb '('
-    t <- termz
-    symb ')'
-    return $ Atom p t
+  p <- name
+  symb '('
+  t <- termz
+  symb ')'
+  return $ Atom p t
 
 word s = lexeme $ do
   string s
 
-cond =
-  cond' `chainr1` impliesCond
+cond = cond' `chainr1` impliesCond
 
-impliesCond =
-  lexeme
-    $   do
-          word "implies"
-          return $ COr . CNot
+impliesCond = lexeme $ do
+  word "implies"
+  return $ COr . CNot
 
-cond' = do 
-      cond'' `chainl1` orCond
+cond' = do
+  cond'' `chainl1` orCond
 
-orCond =
-  lexeme
-    $   do
-          word "or"
-          return COr
+orCond = lexeme $ do
+  word "or"
+  return COr
 
-cond'' = do 
-      cond''' `chainl1` andCond
+cond'' = do
+  cond''' `chainl1` andCond
 
-andCond =
-  lexeme
-    $   do
-          word "and"
-          return CAnd
+andCond :: ReadP (Cond -> Cond -> Cond)
+andCond = lexeme $ do
+  word "and"
+  return CAnd
 
-cond''' = do 
+cond''' =
+  do
       word "not"
-      c  <- cond'''
+      c <- cond'''
       return $ CNot c
-      <|> 
-      cond''''
+    <|> cond''''
 
-
-cond'''' = do 
+cond'''' =
+  do
       a <- atom
       return $ CAtom a
-      <|> 
-      do
-      t1 <- term
-      word "is" 
-      t2 <- term
-      return $ CEq t1 t2
-      <|> 
-      do
-      t1 <- term
-      word "is" 
-      word "not" 
-      t2 <- term
-      return $ CNot (CEq t1 t2)
-      <|> 
-      do
-      word "true"
-      return CTrue
-      <|> 
-      do
-      word "false"
-      return $ CNot CTrue
-      <|> 
-      do
-      symb '('
-      c <- cond
-      symb ')'
-      return c
+    <|> do
+          t1 <- term
+          word "is"
+          t2 <- term
+          return $ CEq t1 t2
+    <|> do
+          t1 <- term
+          word "is"
+          word "not"
+          t2 <- term
+          return $ CNot (CEq t1 t2)
+    <|> do
+          word "true"
+          return CTrue
+    <|> do
+          word "false"
+          return $ CNot CTrue
+    <|> do
+          symb '('
+          c <- cond
+          symb ')'
+          return c
 
 name = lexeme $ do
   c  <- nStart
@@ -132,25 +122,25 @@ name = lexeme $ do
 termz =
   do
       terms
-    <|> do
+    <++ do
           return []
 
 terms = lexeme $ do
   term `sepBy1` symb ','
 
-term = do
-       vname
-    <|> 
-        constant
+term =
+  do
+      vname
+    <|> constant
 
-vname = lexeme $ do 
-    TVar <$> name
+vname = lexeme $ do
+  TVar <$> name
 
 constant = lexeme $ do
-          symb '"'
-          s <- many nChar
-          symb '"'
-          return $ TData s
+  symb '"'
+  s <- many nChar
+  symb '"'
+  return $ TData s
 
 symb :: Char -> ReadP Char
 symb s = lexeme $ do

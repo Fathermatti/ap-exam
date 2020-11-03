@@ -103,7 +103,7 @@ conditionTests = testGroup
 
 
 precedenceTests = testGroup
-  "Predence tests"
+  "Precedence tests"
   [ let t = "x() if x() or y() and z()"
     in  testCase t $ parseString t @?= Right
           [ Rule
@@ -125,10 +125,31 @@ precedenceTests = testGroup
           ]
   , testCase "Above using redundant parenthesis"
   $   parseString "x() if x() or not y() and z()"
-  @?= parseString "x() if x() or ((not y()) and z())",
-     testCase "Above using redundant parenthesis"
+  @?= parseString "x() if x() or ((not y()) and z())"
+  , let t = "x() if x() or not y() and z()"
+    in  testCase t $ parseString t @?= Right
+          [ Rule
+              (Atom "x" [])
+              (COr (CAtom (Atom "x" []))
+                   (CAnd (CNot (CAtom (Atom "y" []))) (CAtom (Atom "z" [])))
+              )
+          ]
+  , let t = "a(x) unless b(x) and c() implies true"
+    in
+      testCase t $ parseString t @?= Right
+        [ Rule
+            (Atom "a" [TVar "x"])
+            (CNot
+              (COr
+                (CNot (CAnd (CAtom (Atom "b" [TVar "x"])) (CAtom (Atom "c" [])))
+                )
+                CTrue
+              )
+            )
+        ]
+  , testCase "Above using rewrite"
   $   parseString "a(x) unless b(x) and c() implies true"
-  @?= parseString "a(x) if not (not (b(x) and c()) or true"
+  @?= parseString "a(x) if not (not (b(x) and c()) or true)"
   ]
 
 
