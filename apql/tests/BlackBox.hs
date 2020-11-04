@@ -8,14 +8,15 @@ import Preprocessor
 import           Engine
 import           Test.Tasty
 import           Test.Tasty.HUnit
-
+import qualified Data.Set as S
+import qualified Data.Map as M
 main :: IO ()
 main = defaultMain $ localOption (mkTimeout 1000000) tests
 
 tests :: TestTree
 tests = testGroup
   "Simple parsing"
-  [programTests, atomTests, ruleTests, conditionTests, precedenceTests, clausifyTests]
+  [programTests, atomTests, ruleTests, conditionTests, precedenceTests, clausifyTests, stratifyTests]
 
 programTests = testGroup
   "Program tests"
@@ -147,49 +148,61 @@ precedenceTests = testGroup
 clausifyTests = testGroup
   "Clausify tests"
   [ let t = "p(x) if q(x) and not (r(x) and x is not a)."
-    in  testCase t $ clausify  [Rule (Atom "p1" [TVar "x"]) (CEq (TVar "x") (TData "a"))] @?= Right (IDB [] [])
+    in  testCase t $ clausify [Rule (Atom "p1" [TVar "x"]) (CEq (TVar "x") (TData "a"))] @?= Right (IDB [("p",1)] [Clause (Atom "p" [TVar "x"]) [Atom "q" [TVar "x"]] [TNot (Atom "r" [TVar "x"])],Clause (Atom "p" [TVar "x"]) [Atom "q" [TVar "x"]] [TEq (TVar "x") (TVar "a")]])
+  ]
+  
+stratifyTests = testGroup
+  "Stratify tests"
+  [ let t = "p(x) if q(x) and not (r(x) and x is not a)."
+    in  testCase t $ stratify (IDB [("s",0),("q",0),("p",0)] [Clause (Atom "p" []) [Atom "q" [],Atom "r" []] [],Clause (Atom "p" []) [Atom "p" []] [TNot (Atom "r" [])],Clause (Atom "q" []) [Atom "q" []] [TNot (Atom "s" [])],Clause (Atom "s" []) [Atom "r" []] []]) [("r", 0)] @?= Right [[("s",0)],[("q",0),("p",0)]]
   ]
 
--- testCaseBad s t =
---   testCase ("*" ++ s) $
---     case t of
---       Right a -> assertFailure $ "Unexpected success: " ++ show a
---       Left (EUser _) -> return () -- any message is fine
---       Left em -> assertFailure $ "Error: " ++ show em
+executeTests = testGroup
+  "Stratify tests"
+  [ let t = "p(x) if q(x) and not (r(x) and x is not a)."
+    in  testCase t $ execute (IDB [("s",0),("q",0),("p",0)] [Clause (Atom "p" []) [Atom "q" [],Atom "r" []] [],Clause (Atom "p" []) [Atom "p" []] [TNot (Atom "r" [])],Clause (Atom "q" []) [Atom "q" []] [TNot (Atom "s" [])],Clause (Atom "s" []) [Atom "r" []] []]) [[("s", 0)], [("p", 0), ("q", 0)]] @?= Right [[("s",0)],[("q",0),("p",0)]]
+  ]
 
--- rudimentary :: TestTree
--- rudimentary =
---  testGroup "Rudimentary tests"
---    [testCase "parse1" $
---       parseString pgmStr @?= Right pgmAST,
---     testCaseBad "parse2" $
---       parseString "p(x) if .",
---     testCase "clausify1" $
---       clausify pgmAST @?= Right pgmIDB,
---     testCaseBad "clausify2" $
---       clausify [Rule (Atom "p" [TVar "x"]) CTrue],
---     testCase "stratify1" $ -- too strict! other correct answers also possible
---       stratify pgmIDB [("r",1)] @?= Right pgmStratX,
---     testCaseBad "stratify2" $
---       stratify (IDB [("p",0)]
---                     [Clause (Atom "p" []) [] [TNot (Atom "p" [])]]) [],
---     testCase "execute" $
---       fmap M.fromList (execute pgmIDB pgmStratX [(("r",1), pgmExtR)])
---         @?= Right (M.fromList pgmEDB) ]
---  where
---    pgmStr = "p(x,y) if q(x) and r(y). q(\"a\")."
---    pgmAST = [Rule (Atom "p" [TVar "x", TVar "y"])
---                   (CAnd (CAtom (Atom "q" [TVar "x"]))
---                         (CAtom (Atom "r" [TVar "y"]))),
---              Rule (Atom "q" [TData "a"])
---                   CTrue]
---    pgmIDB = IDB [("p", 2), ("q",1)]
---                 [Clause (Atom "p" [TVar "x", TVar "y"])
---                         [Atom "q" [TVar "x"], Atom "r" [TVar "y"]]
---                         [],
---                  Clause (Atom "q" [TData "a"]) [] []]
---    pgmStratX = [[("p",2), ("q",1)]]
---    pgmExtR = S.fromList [["b"], ["c"]]
---    pgmExtQ = S.fromList [["a"]]
---    pgmExtP = S.fromList [["a", "b"], ["a", "c"]]
---    pgmEDB = [(("p",2),pgmExtP), (("q",1), pgmExtQ), (("r",1), pgmExtR)]
+testCaseBad s t =
+  testCase ("*" ++ s) $
+    case t of
+      Right a -> assertFailure $ "Unexpected success: " ++ show a
+      Left (EUser _) -> return () -- any message is fine
+      Left em -> assertFailure $ "Error: " ++ show em
+
+rudimentary :: TestTree
+rudimentary =
+ testGroup "Rudimentary tests"
+   [testCase "parse1" $
+      parseString pgmStr @?= Right pgmAST,
+    testCaseBad "parse2" $
+      parseString "p(x) if .",
+    testCase "clausify1" $
+      clausify pgmAST @?= Right pgmIDB,
+    testCaseBad "clausify2" $
+      clausify [Rule (Atom "p" [TVar "x"]) CTrue],
+    testCase "stratify1" $ -- too strict! other correct answers also possible
+      stratify pgmIDB [("r",1)] @?= Right pgmStratX,
+    testCaseBad "stratify2" $
+      stratify (IDB [("p",0)]
+                    [Clause (Atom "p" []) [] [TNot (Atom "p" [])]]) [],
+    testCase "execute" $
+      fmap M.fromList (execute pgmIDB pgmStratX [(("r",1), pgmExtR)])
+        @?= Right (M.fromList pgmEDB) ]
+ where
+   pgmStr = "p(x,y) if q(x) and r(y). q(\"a\")."
+   pgmAST = [Rule (Atom "p" [TVar "x", TVar "y"])
+                  (CAnd (CAtom (Atom "q" [TVar "x"]))
+                        (CAtom (Atom "r" [TVar "y"]))),
+             Rule (Atom "q" [TData "a"])
+                  CTrue]
+   pgmIDB = IDB [("p", 2), ("q",1)]
+                [Clause (Atom "p" [TVar "x", TVar "y"])
+                        [Atom "q" [TVar "x"], Atom "r" [TVar "y"]]
+                        [],
+                 Clause (Atom "q" [TData "a"]) [] []]
+   pgmStratX = [[("p",2), ("q",1)]]
+   pgmExtR = S.fromList [["b"], ["c"]]
+   pgmExtQ = S.fromList [["a"]]
+   pgmExtP = S.fromList [["a", "b"], ["a", "c"]]
+   pgmEDB = [(("p",2),pgmExtP), (("q",1), pgmExtQ), (("r",1), pgmExtR)]

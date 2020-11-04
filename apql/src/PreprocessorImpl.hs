@@ -39,6 +39,9 @@ specs p = nub $ foldl s [] p
 s :: [(PName, Int)] -> Clause -> [(PName, Int)]
 s names (Clause (Atom n vars) _ _) = (n, length vars) : names 
 
+spec :: Atom -> PSpec
+spec (Atom pname terms) = (pname, length terms)
+
 t :: Rule -> [Clause]
 t rule = map clause (transform rule)
 
@@ -94,4 +97,35 @@ transform rule = case rule of
 
 
 stratify :: IDB -> [PSpec] -> Either ErrMsg [[PSpec]]
-stratify = undefined
+stratify (IDB internal clauses) ext = run clauses [ext] internal
+
+run :: [Clause] -> [[PSpec]] -> [PSpec] -> Either ErrMsg [[PSpec]]
+run _ lower [] = Right (tail $ reverse lower)  
+run clauses lower specs = 
+    case strata clauses lower specs of
+        [] -> Left (EUser "strata empty")
+        s -> run clauses (s : lower) (specs \\ s)
+
+strata :: [Clause] -> [[PSpec]] -> [PSpec] -> [PSpec]
+strata clauses lower specs = 
+    case partition (valid clauses lower specs) specs of
+    (keep, []) -> keep
+    (keep, _) -> strata clauses lower keep
+
+valid :: [Clause] -> [[PSpec]] -> [PSpec] -> (PName, Int) -> Bool
+valid clauses prev strata p = all (validate prev p strata) clauses
+
+validate :: [[PSpec]] -> (PName, Int) -> [PSpec] -> Clause -> Bool
+validate lower (pname, arity) strata (Clause (Atom pname' terms) positive tests)
+    | pname == pname' && arity == length terms = all (negated lower) tests && all (nonnegated lower strata) positive 
+    | otherwise = True
+
+nonnegated :: [[PSpec]] -> [PSpec] -> Atom -> Bool
+nonnegated lower strata atom = inStrata (lower ++ [strata]) (spec atom)
+
+negated :: [[PSpec]] -> Test -> Bool
+negated lower (TNot atom) = inStrata lower (spec atom)
+negated _ _ = True
+
+inStrata :: [[PSpec]] -> PSpec -> Bool
+inStrata stratas p = p `elem` concat stratas
