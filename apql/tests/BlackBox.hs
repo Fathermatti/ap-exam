@@ -16,7 +16,7 @@ main = defaultMain $ localOption (mkTimeout 1000000) tests
 tests :: TestTree
 tests = testGroup
   "Simple parsing"
-  [programTests, atomTests, ruleTests, conditionTests, precedenceTests, clausifyTests, stratifyTests]
+  [programTests, atomTests, ruleTests, conditionTests, precedenceTests, clausifyTests, stratifyTests, termzTests, termsTests, constantTests, negativeWhiteSpaceTests]
 
 programTests = testGroup
   "Program tests"
@@ -28,21 +28,6 @@ programTests = testGroup
   , testCase " \\nx().\\n  y().  \\n\\n"
   $   parseString " \nx().\n  y()  \n\n."
   @?= Right [Rule (Atom "x" []) CTrue, Rule (Atom "y" []) CTrue]
-  ]
-
-atomTests = testGroup
-  "Atom tests"
-  [ let t = "x()."
-    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) CTrue]
-  , let t = " x(). "
-    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) CTrue]
-  , let t = "x(t)."
-    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TVar "t"]) CTrue]
-  , let t = "x(\"y\") ."
-    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TData "y"]) CTrue]
-  , let t = "x(\"y\", z) ."
-    in  testCase t $ parseString t @?= Right
-          [Rule (Atom "x" [TData "y", TVar "z"]) CTrue]
   ]
 
 ruleTests = testGroup
@@ -92,6 +77,63 @@ conditionTests = testGroup
     in
       testCase t $ parseString t @?= Right
         [Rule (Atom "x" []) (CAnd (CAtom (Atom "y" [])) (CAtom (Atom "z" [])))]
+  ]
+
+
+atomTests = testGroup
+  "Atom tests"
+  [ let t = "x()."
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) CTrue]
+  , let t = " x(). "
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) CTrue]
+  , let t = "x(t)."
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TVar "t"]) CTrue]
+  , let t = "x(\"y\") ."
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TData "y"]) CTrue]
+  , let t = "x(\"y\", z) ."
+    in  testCase t $ parseString t @?= Right
+          [Rule (Atom "x" [TData "y", TVar "z"]) CTrue]
+  ]
+
+termzTests = testGroup
+  "Termz tests"
+  [ let t = "x()."
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" []) CTrue]
+  , let t = "x(y)."
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TVar "y"]) CTrue]
+  ]
+
+
+termsTests = testGroup
+  "Terms tests"
+  [ 
+    let t = "x(y). "
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TVar "y"]) CTrue]
+  , let t = "x(y, z, v, w) ."
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TVar "y",TVar "z",TVar "v",TVar "w"]) CTrue]
+  ]
+
+constantTests = testGroup
+  "String constant tests"
+  [ 
+    let t = "x(y). "
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TVar "y"]) CTrue]
+  , let t = "x(\"y\")."
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TData "y"]) CTrue]
+  , let t = "x(\"Hello world!\")."
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TData "Hello world!"]) CTrue]
+  , let t = "x(y, \"z\", q)."
+    in  testCase t $ parseString t @?=
+          Right [Rule (Atom "x" [TVar "y",TData "z",TVar "q"]) CTrue]
+  ]
+
+negativeWhiteSpaceTests = testGroup
+  "Negative constant tests"
+  [ 
+    let t = "x(isnot). "
+    in  testCase t $ parseString t @?= Right [Rule (Atom "x" [TVar "isnot"]) CTrue]
+  , let t = "x(is not)."
+    in  testCase t $ parseString t @?= Left (EUser "parsing failed")
   ]
 
 
@@ -155,12 +197,6 @@ stratifyTests = testGroup
   "Stratify tests"
   [ let t = "p(x) if q(x) and not (r(x) and x is not a)."
     in  testCase t $ stratify (IDB [("s",0),("q",0),("p",0)] [Clause (Atom "p" []) [Atom "q" [],Atom "r" []] [],Clause (Atom "p" []) [Atom "p" []] [TNot (Atom "r" [])],Clause (Atom "q" []) [Atom "q" []] [TNot (Atom "s" [])],Clause (Atom "s" []) [Atom "r" []] []]) [("r", 0)] @?= Right [[("s",0)],[("q",0),("p",0)]]
-  ]
-
-executeTests = testGroup
-  "Stratify tests"
-  [ let t = "p(x) if q(x) and not (r(x) and x is not a)."
-    in  testCase t $ execute (IDB [("s",0),("q",0),("p",0)] [Clause (Atom "p" []) [Atom "q" [],Atom "r" []] [],Clause (Atom "p" []) [Atom "p" []] [TNot (Atom "r" [])],Clause (Atom "q" []) [Atom "q" []] [TNot (Atom "s" [])],Clause (Atom "s" []) [Atom "r" []] []]) [[("s", 0)], [("p", 0), ("q", 0)]] @?= Right [[("s",0)],[("q",0),("p",0)]]
   ]
 
 testCaseBad s t =
