@@ -1,6 +1,6 @@
 -module(test_mailfilter_qc).
 
--export([wellbehaved_filter_fun/0]). % Remember to export the other function from Q2.2
+-export([wellbehaved_filter_fun/0, filter/1, prop_mail_is_sacred/0]). % Remember to export the other function from Q2.2
 
 -include_lib("eqc/include/eqc.hrl").
 
@@ -15,12 +15,6 @@
          next_state/3,
          postcondition/3,
          precondition/2]).
-
--compile(export_all).
-
-transformed_result() ->
-    eqc_gen:elements([{transformed, newmail},
-                      {both, data, mail}]).
 
 filter_fun(Time) ->
     ?LET(T, Time,
@@ -76,32 +70,6 @@ prop_mail_is_sacred() ->
             end).
 
 
-filter_fun() ->oneof([fun (M, D) ->
-                            {just, M}
-                    end,
-                    fun (M, D) ->
-                            {transformed, M}
-                    end,
-                    fun (M, D) ->
-                            {both, M, M}
-                    end]).
-
-prop_consistency() ->
-    ?FORALL({T1, T2},
-            {transforming(), transforming()},
-            begin 
-        {ok, MS} = mailfilter:start(infinite),
-        mailfilter:default(MS, x, T1, none),
-        mailfilter:default(MS, y, T2, none),
-        {ok, _} = mailfilter:add_mail(MS, Mail),
-        timer:sleep(100),
-        {ok, State} = mailfilter:stop(MS),
-        T1()
-        end
-    ).
-
-%qTHAT GETCONFIG AND STOP RETURNS THE SAME
-
 stop(none) -> [];
 stop(MS) ->
     {ok, State} = mailfilter:stop(MS),
@@ -145,24 +113,3 @@ postcondition(_S, _, _R) -> true.
 same_mails(Mails, State) ->
     lists:sort([Mail || {_MR, Mail} <- Mails]) =:=
         lists:sort([Mail || {Mail, _} <- State]).
-
-g() ->
-    {utf8(), filter(transforming_filter_fun()), int()}.
-
-prop_always_transforming() ->
-    ?FORALL({X, Y, XS}, {g(), g(), eqc_gen:list(5, g())},
-            begin
-                {ok, MS} = mailfilter:start(infinite),
-                lists:map(fun ({L, F, D}) ->
-                                  mailfilter:default(MS, L, F, D)
-                          end,
-                          [X] ++ [Y] ++ XS),
-                {ok, MR} = mailfilter:add_mail(MS, mail),
-                {ok, C} = mailfilter:get_config(MR),
-                any_inprogress(C)
-            end).
-
-any_inprogress(Config) ->
-    lists:any(fun ({_L, Result}) -> Result =:= inprogress
-              end,
-              Config).
